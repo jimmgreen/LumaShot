@@ -1,0 +1,22 @@
+{
+  "engine": "PP-OCRv6 small (FP32), ONNX Runtime CPU 1.22.0",
+  "detector": {
+    "source": "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx/tree/28fe5895c24fd108c19eb3e8479f4ab385fbfc62",
+    "sha256": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e"
+  },
+  "recognizer": {
+    "source": "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx/tree/b8f84f0b80c529de40b4fbb3544b84fa7233a513",
+    "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+  },
+  "dictionary": {
+    "source": "rec.yml PostProcess.character_dict, UTF-8 one entry per LF; append space in decoder, prepend CTC blank in decoder",
+    "entries": 18708,
+    "sha256": "769e7fa79bb297b5f18d8dbd149e364a45bc61f2b3f574e5ea836f0b261c23a6"
+  },
+  "runtime": {
+    "source": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.22.0/microsoft.ml.onnxruntime.1.22.0.nupkg",
+    "package_sha256": "d571e63a2329baacb713f441e65ad75284de354db6e1ac435fe4bebbb417986a",
+    "windows_x64_dll_sha256": "579b636403983254346a5c1d80bd28f1519cd1e284cd204f8d4ff41f8d711559"
+  },
+  "licenses": {"models": "Apache-2.0, PaddlePaddle", "runtime": "MIT, Microsoft; see ThirdPartyNotices.txt"}
+}

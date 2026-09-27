@@ -1,0 +1,17 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start  1: cursor_capture
+1/6 Test  #1: cursor_capture ...................   Passed    0.15 sec
+    Start  2: annotation_render
+2/6 Test  #2: annotation_render ................   Passed    1.36 sec
+    Start  4: unified_toolbar
+3/6 Test  #4: unified_toolbar ..................   Passed    0.06 sec
+    Start  5: shared_controls
+4/6 Test  #5: shared_controls ..................   Passed    0.70 sec
+    Start 12: capture_to_pin
+5/6 Test #12: capture_to_pin ...................   Passed    5.01 sec
+    Start 13: capture_reselect
+6/6 Test #13: capture_reselect .................   Passed    0.87 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Total Test time (real) =   8.20 sec

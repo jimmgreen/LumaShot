@@ -1,0 +1,143 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start  1: media_recording
+1/6 Test  #1: media_recording ..................   Passed    4.58 sec
+    Start  3: recording_ui
+2/6 Test  #3: recording_ui .....................***Failed    5.76 sec
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS actual mouse message selects GIF defaults
+PASS preparation has no capture session
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS recording collapses to single compact bar
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS timeline handle updates real export range
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS countdown creates no capture or encoder
+PASS real preview player initializes against recorded MP4
+PASS preview decodes real poster and eight thumbnails
+FAIL play action uses the live video surface
+FAIL pause hides playback surface and stops refresh timer
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS real dropdown has no nonclient border
+PASS dropdown belongs to recording window
+PASS real shared popup opens from recording control
+PASS keyboard selection commits and dismissal preserves value
+PASS dropdown destroys window and releases capture on close
+PASS real dropdown has no nonclient border
+PASS dropdown belongs to recording window
+PASS real shared popup opens from recording control
+PASS keyboard selection commits and dismissal preserves value
+PASS dropdown destroys window and releases capture on close
+PASS real dropdown has no nonclient border
+PASS dropdown belongs to recording window
+PASS real shared popup opens from recording control
+PASS keyboard selection commits and dismissal preserves value
+PASS dropdown destroys window and releases capture on close
+PASS dropdown never starts a capture session
+PASS recording uses settings DWM rounded corner policy
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS selection interior stays color-key transparent in composed frame
+PASS drag reuses backing surface without repeated 4K allocation
+PASS selection suppresses separate background erase
+PASS LumaText repeated panel paints keep bounded memory
+PASS idle recording panel consumes under 100ms CPU per second
+Panel private MiB=106.551 warm growth MiB=0.90625 idle CPU ms=0
+
+    Start  5: cursor_capture
+3/6 Test  #5: cursor_capture ...................   Passed    0.31 sec
+    Start 40: gif_quality
+4/6 Test #40: gif_quality ......................   Passed    3.70 sec
+    Start 41: recording_pixels
+5/6 Test #41: recording_pixels .................   Passed    0.37 sec
+    Start 43: gif_pipeline
+6/6 Test #43: gif_pipeline .....................   Passed    1.46 sec
+
+83% tests passed, 1 tests failed out of 6
+
+Total Test time (real) =  16.21 sec
+
+The following tests FAILED:
+	  3 - recording_ui (Failed)
+Errors while running CTest

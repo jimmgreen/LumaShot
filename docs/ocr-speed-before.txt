@@ -1,0 +1,14 @@
+model_load_ms=275.96
+completed=10 CER=0.00525624
+completed=20 CER=0.00466978
+completed=30 CER=0.00446828
+completed=40 CER=0.00433333
+completed=50 CER=0.00452007
+completed=60 CER=0.00444543
+completed=70 CER=0.00439099
+completed=80 CER=0.00433333
+completed=90 CER=0.00443721
+completed=100 CER=0.00440059
+screenshots=100 characters=7499 errors=33 CER=0.00440059 fixture_P95_ms=229.145
+1080p_20lines_P95_ms=964.209 peak_working_set_MB=147.508 private_MB=68.043
+sampled_peak_private_MB=127.031

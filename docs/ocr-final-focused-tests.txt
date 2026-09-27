@@ -1,0 +1,11 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start 3: ocr_text
+1/3 Test #3: ocr_text .........................   Passed    0.03 sec
+    Start 5: ocr_service
+2/3 Test #5: ocr_service ......................   Passed   17.65 sec
+    Start 7: capture_to_pin
+3/3 Test #7: capture_to_pin ...................   Passed    2.72 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Total Test time (real) =  20.44 sec

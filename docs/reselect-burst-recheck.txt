@@ -1,0 +1,11 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start 16: selection_burst
+    Test #16: selection_burst ..................   Passed    1.94 sec
+    Start 16: selection_burst
+    Test #16: selection_burst ..................   Passed    1.79 sec
+    Start 16: selection_burst
+1/1 Test #16: selection_burst ..................   Passed    1.26 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   5.02 sec

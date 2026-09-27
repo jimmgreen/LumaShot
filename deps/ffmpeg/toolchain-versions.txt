@@ -1,0 +1,11 @@
+binutils-mingw-w64-x86-64	2.44-3+12+b1
+cmake	3.31.6-2
+g++-mingw-w64-x86-64-posix	14.2.0-19+27+b1
+gcc-mingw-w64-x86-64-posix	14.2.0-19+27+b1
+make	4.4.1-2
+meson	1.7.0-1
+mingw-w64-x86-64-dev	12.0.0-5
+nasm	2.16.03-1
+ninja-build	1.12.1-1
+pkg-config	1.8.1-4
+python3	3.13.5-1

@@ -1,0 +1,32 @@
+{
+  "originalInstallerBytes": 32448590,
+  "conventionalInstallerBytes": 32026631,
+  "runtimeBytes": 12418080,
+  "models": [
+    {
+      "name": "det.onnx",
+      "bytes": 9880512,
+      "sha256": "D73E0058B7A8086BBD57F3D10B8BCD4FF95363F67E06E2762B5E814FE9C9410E"
+    },
+    {
+      "name": "rec.onnx",
+      "bytes": 21159378,
+      "sha256": "5435FD747C9E0EFE15A96D0B378D5BD157E9492ED8FD80EDF08F30D02FA24634"
+    }
+  ],
+  "requiredCrt": [
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll"
+  ],
+  "finalInstallerBytes": 31182665,
+  "reducedRuntimeBytes": 8611328,
+  "verification": [
+    "real OCR identical outputs across 3 alternating runs",
+    "exact table TSV and empty cells",
+    "service cancellation/crash/recovery",
+    "7 focused CTest regressions",
+    "all packaged binaries/models match build hashes"
+  ]
+}

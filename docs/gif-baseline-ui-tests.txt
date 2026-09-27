@@ -1,0 +1,121 @@
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS actual mouse message selects GIF defaults
+PASS preparation has no capture session
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS recording collapses to single compact bar
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS timeline handle updates real export range
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS countdown creates no capture or encoder
+PASS real preview player initializes against recorded MP4
+PASS preview decodes real poster and eight thumbnails
+PASS play action uses the live video surface
+PASS pause hides playback surface and stops refresh timer
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS control within actual panel bounds
+PASS real dropdown has no nonclient border
+PASS dropdown belongs to recording window
+PASS real shared popup opens from recording control
+PASS keyboard selection commits and dismissal preserves value
+PASS dropdown destroys window and releases capture on close
+PASS real dropdown has no nonclient border
+PASS dropdown belongs to recording window
+PASS real shared popup opens from recording control
+PASS keyboard selection commits and dismissal preserves value
+PASS dropdown destroys window and releases capture on close
+PASS real dropdown has no nonclient border
+PASS dropdown belongs to recording window
+PASS real shared popup opens from recording control
+PASS keyboard selection commits and dismissal preserves value
+PASS dropdown destroys window and releases capture on close
+PASS dropdown never starts a capture session
+PASS recording uses settings DWM rounded corner policy
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS all four layered corners remain fully transparent across DPI and theme
+PASS recording backdrop uses settings panel translucency
+PASS selection interior stays color-key transparent in composed frame
+PASS drag reuses backing surface without repeated 4K allocation
+PASS selection suppresses separate background erase
+PASS LumaText repeated panel paints keep bounded memory
+PASS idle recording panel consumes under 100ms CPU per second
+Panel private MiB=110.496 warm growth MiB=0.234375 idle CPU ms=0

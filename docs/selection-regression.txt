@@ -1,0 +1,15 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start 1: cursor_capture
+1/5 Test #1: cursor_capture ...................   Passed    0.13 sec
+    Start 2: annotation_render
+2/5 Test #2: annotation_render ................   Passed    0.10 sec
+    Start 3: color_picker
+3/5 Test #3: color_picker .....................   Passed    0.48 sec
+    Start 7: pin_image
+4/5 Test #7: pin_image ........................   Passed    0.06 sec
+    Start 8: capture_to_pin
+5/5 Test #8: capture_to_pin ...................   Passed    2.84 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) =   3.62 sec

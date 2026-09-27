@@ -1,0 +1,10 @@
+detected_regions=24
+idle_cycle=1 private_MiB=41.9141 working_MiB=64.6719 gdi=23 user=22
+idle_cycle=2 private_MiB=42.5977 working_MiB=68.0195 gdi=23 user=23
+idle_cycle=3 private_MiB=41.9727 working_MiB=68.2109 gdi=23 user=23
+idle_cycle=4 private_MiB=43.4062 working_MiB=68.332 gdi=23 user=23
+idle_cycle=5 private_MiB=42.9258 working_MiB=68.1875 gdi=23 user=24
+idle_cycle=6 private_MiB=42.3438 working_MiB=68.5781 gdi=23 user=23
+idle_cpu_ms=0 idle_wall_ms=313 idle_private_MiB=42.3438 idle_working_MiB=68.5781 initial_private_MiB=5.24219 active_private_MiB=148.566 active_working_MiB=154.91
+hotkey_to_interactive_ms cold=276.678 repeats=173.143,166.967,154.979,181.914,154.494,
+PASS real capture startup, immediate interaction, controls, and resource release

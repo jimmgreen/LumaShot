@@ -1,0 +1,144 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    env:
+      GRAPHEME_TEST_URL: https://www.unicode.org/Public/16.0.0/ucd/auxiliary/GraphemeBreakTest.txt
+      GRAPHEME_TEST_SHA256: ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download pinned Unicode 16.0 grapheme tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/unicode | Out-Null
+          Invoke-WebRequest $env:GRAPHEME_TEST_URL -OutFile out/unicode/GraphemeBreakTest.txt
+          $hash = (Get-FileHash out/unicode/GraphemeBreakTest.txt -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:GRAPHEME_TEST_SHA256) { throw 'grapheme test hash mismatch' }
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DLUMATEXT_BUILD_SHARED=ON
+          -DLUMATEXT_BUILD_STATIC=ON
+          -DLUMATEXT_BUILD_SAMPLES=ON
+          -DLUMATEXT_BUILD_TESTS=ON
+          -DLUMATEXT_UNICODE_TEST_DATA=${{ github.workspace }}/out/unicode/GraphemeBreakTest.txt
+      - name: Build
+        run: cmake --build build --config ${{ matrix.configuration }} --parallel
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.configuration }} --output-on-failure
+      - name: Install
+        run: cmake --install build --config ${{ matrix.configuration }} --prefix out/install
+      - name: Verify package
+        run: >-
+          cmake -S tests/package -B out/package-smoke
+          -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/out/install
+      - name: Build package consumer
+        run: cmake --build out/package-smoke --config ${{ matrix.configuration }} --parallel
+      - name: Verify ICU-free package and isolated shared consumer
+        shell: pwsh
+        run: |
+          & out/package-smoke/${{ matrix.configuration }}/lumatext_package_static_smoke.exe
+          ./tools/verify_windows_package.ps1 `
+            -InstallDirectory out/install `
+            -ConsumerExecutable out/package-smoke/${{ matrix.configuration }}/lumatext_package_shared_smoke.exe
+
+  coretext-reference:
+    runs-on: macos-15
+    env:
+      NOTO_REGULAR_URL: https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
+      NOTO_BOLD_URL: https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Bold.otf
+      NOTO_REGULAR_SHA256: 2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b
+      NOTO_BOLD_SHA256: b5f0d1a190a7f9b43c310a8850630af12553df32c4c050543f9059732d9b4c0a
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download pinned Noto Sans CJK 2.004
+        run: |
+          mkdir -p out/fonts
+          curl -L --fail --retry 3 "$NOTO_REGULAR_URL" -o out/fonts/NotoSansCJKsc-Regular.otf
+          curl -L --fail --retry 3 "$NOTO_BOLD_URL" -o out/fonts/NotoSansCJKsc-Bold.otf
+          echo "$NOTO_REGULAR_SHA256  out/fonts/NotoSansCJKsc-Regular.otf" | shasum -a 256 -c -
+          echo "$NOTO_BOLD_SHA256  out/fonts/NotoSansCJKsc-Bold.otf" | shasum -a 256 -c -
+      - name: Build CoreText reference generator
+        run: swiftc tools/coretext_reference.swift -O -o out/coretext_reference
+      - name: Generate CoreText references
+        run: >-
+          out/coretext_reference
+          --regular out/fonts/NotoSansCJKsc-Regular.otf
+          --bold out/fonts/NotoSansCJKsc-Bold.otf
+          --output out/coretext
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coretext-reference
+          path: out/coretext
+          if-no-files-found: error
+
+  coretext-compare:
+    runs-on: windows-2022
+    needs: coretext-reference
+    env:
+      NOTO_REGULAR_URL: https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
+      NOTO_BOLD_URL: https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Bold.otf
+      NOTO_REGULAR_SHA256: 2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b
+      NOTO_BOLD_SHA256: b5f0d1a190a7f9b43c310a8850630af12553df32c4c050543f9059732d9b4c0a
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: coretext-reference
+          path: out/coretext
+      - name: Download pinned Noto Sans CJK 2.004
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/fonts | Out-Null
+          Invoke-WebRequest $env:NOTO_REGULAR_URL -OutFile out/fonts/NotoSansCJKsc-Regular.otf
+          Invoke-WebRequest $env:NOTO_BOLD_URL -OutFile out/fonts/NotoSansCJKsc-Bold.otf
+          if ((Get-FileHash out/fonts/NotoSansCJKsc-Regular.otf -Algorithm SHA256).Hash.ToLower() -ne $env:NOTO_REGULAR_SHA256) { throw 'regular font hash mismatch' }
+          if ((Get-FileHash out/fonts/NotoSansCJKsc-Bold.otf -Algorithm SHA256).Hash.ToLower() -ne $env:NOTO_BOLD_SHA256) { throw 'bold font hash mismatch' }
+      - name: Configure LumaText reference renderer
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DLUMATEXT_BUILD_SHARED=ON
+          -DLUMATEXT_BUILD_STATIC=OFF
+          -DLUMATEXT_BUILD_SAMPLES=OFF
+          -DLUMATEXT_BUILD_TESTS=ON
+          -DLUMATEXT_BUILD_REFERENCE_TOOLS=ON
+      - name: Build LumaText reference renderer
+        run: cmake --build build --config Release --parallel
+      - name: Verify minimal shared-only install
+        shell: pwsh
+        run: |
+          cmake --install build --config Release --prefix out/install-shared
+          ./tools/verify_windows_package.ps1 -InstallDirectory out/install-shared
+          if (Test-Path out/install-shared/include/freetype2) { throw 'shared-only install contains FreeType headers' }
+          if (Test-Path out/install-shared/lib/freetype.lib) { throw 'shared-only install contains FreeType library' }
+      - name: Generate LumaText references
+        run: >-
+          build/Release/lumatext_reference_win.exe
+          --regular out/fonts/NotoSansCJKsc-Regular.otf
+          --bold out/fonts/NotoSansCJKsc-Bold.otf
+          --output out/lumatext
+      - name: Install comparator dependencies
+        run: python -m pip install --disable-pip-version-check numpy pillow scikit-image
+      - name: Compare against CoreText
+        run: >-
+          python tools/compare_reference.py
+          --coretext out/coretext
+          --lumatext out/lumatext
+          --output out/comparison
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coretext-comparison
+          path: |
+            out/lumatext
+            out/comparison

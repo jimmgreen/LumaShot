@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "name": "LumaShot MP4-only FFmpeg Windows x64",
+  "built": "2026-09-17",
+  "license": "GPL-3.0-or-later",
+  "binary": {
+    "filename": "ffmpeg.exe",
+    "bytes": 36424704,
+    "sha256": "f0ae86e685f9167f171b0561f7909588d3f2e7e21e4cbf03ae30a51828471059"
+  },
+  "sources": {
+    "ffmpeg": {
+      "url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/494c96137916e0e61f17c439f8f5be13b27fc592",
+      "revision": "494c96137916e0e61f17c439f8f5be13b27fc592",
+      "sha256": "d2415d363598adb7ebc3b34a713e4e1bee8c251ebf3a0b55e97baf9ac793bd17",
+      "bytes": 16094063
+    },
+    "svt-av1": {
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/8f1f1b0dc52b063264838b51bc2299a5e44e31d5/SVT-AV1-8f1f1b0dc52b063264838b51bc2299a5e44e31d5.tar.gz",
+      "revision": "8f1f1b0dc52b063264838b51bc2299a5e44e31d5",
+      "sha256": "98bc26343151b6acdf1e80dee9ace30b6450756e012d0d57a9844f57da79f560",
+      "bytes": 10888689
+    },
+    "x264": {
+      "url": "https://code.videolan.org/videolan/x264/-/archive/da14df5/x264-da14df5.tar.gz",
+      "revision": "da14df5535fd46776fb1c9da3130973295c87aca",
+      "sha256": "71c242c9299c8f7ac93f2db2a9156b2d24ea86b0ec76f6d4a985a0b749e0f62f",
+      "bytes": 1034237
+    },
+    "dav1d": {
+      "url": "https://code.videolan.org/videolan/dav1d/-/archive/d242c47b437c950b545e96e7872aa914edc50be5/dav1d-d242c47b437c950b545e96e7872aa914edc50be5.tar.gz",
+      "revision": "d242c47b437c950b545e96e7872aa914edc50be5",
+      "sha256": "ff62bab541c975b5ca05a670132318caaa6f688883171d03d6b23d44476130c0",
+      "bytes": 1708827
+    }
+  },
+  "build_changes": [
+    "Add aom_film_grain.o to CONFIG_H264_DECODER objects for shared SEI cleanup linkage. No codec algorithm patch.",
+    "Restore x264 r3198 da14df5 x264_config.h metadata omitted by upstream source archives."
+  ],
+  "required": {
+    "encoders": [
+      "libsvtav1",
+      "libx264",
+      "wrapped_avframe"
+    ],
+    "decoders": [
+      "h264",
+      "libdav1d",
+      "aac"
+    ],
+    "demuxers": [
+      "mov"
+    ],
+    "muxers": [
+      "mp4",
+      "null"
+    ],
+    "filters": [
+      "ssim",
+      "settb",
+      "setpts",
+      "scale",
+      "format",
+      "buffer",
+      "buffersink"
+    ],
+    "protocols": [
+      "file",
+      "pipe"
+    ]
+  },
+  "windows_system_imports": [
+    "bcrypt.dll",
+    "KERNEL32.dll",
+    "msvcrt.dll",
+    "SHELL32.dll"
+  ],
+  "notes": "Source archives lack .git; runtime version banners may omit git suffixes. source-lock.json identifies the exact code revisions. Rebuilds may differ in PE timestamps, paths and toolchain output."
+}

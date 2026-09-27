@@ -1,0 +1,39 @@
+PASS CTC blanks and duplicates
+PASS CTC positions are not equal-width
+PASS reverse selection
+PASS empty selection
+PASS cross-line reverse selection preserves newline
+PASS highlight ranges match copied glyphs
+PASS combining marks and surrogate pairs stay intact
+PASS IPC preserves text and geometry
+PASS truncated IPC response is rejected
+PASS non-UTF8 system errors cannot escape the background error handler
+PASS reading order separates columns
+load_ms 266.583
+ocr_ms 1540.66 lines 13
+项目笔记.txt
+
+项目笔记
+
+LumaShot·轻巧地记录每一个细节
+
+梳理产品核心流程，聚焦截图与标注的极简体验。
+
+需要进一步优化启动速度和内存占用，保持轻量。
+
+待办事项
+
+√ 完善核心截图功能
+
+□保留鼠标指针的实际形态
+
+□优化标注工具的交互细节
+
+参考资料：internal-notes.example
+
+一
+
+□
+
+x
+PASS real offline model detects synthetic text

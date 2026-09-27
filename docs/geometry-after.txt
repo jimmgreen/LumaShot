@@ -1,0 +1,12 @@
+638-cpu stride=2552 -> 2560 decoded=640x368 flags=32 twoD=0 length=942080
+PASS preview geometry MAE=5.37622
+638-gpu stride=2552 -> 2560 decoded=640x368 flags=32 twoD=0 length=942080
+PASS preview geometry MAE=5.2408
+1918-cpu stride=7672 -> 7680 decoded=1920x1088 flags=32 twoD=0 length=8355840
+PASS preview geometry MAE=0.895001
+1918-gpu stride=7672 -> 7680 decoded=1920x1088 flags=32 twoD=0 length=8355840
+PASS preview geometry MAE=0.650844
+3838-cpu stride=15352 -> 15360 decoded=3840x2160 flags=32 twoD=0 length=33177600
+PASS preview geometry MAE=0.835538
+3838-gpu stride=15352 -> 15360 decoded=3840x2160 flags=32 twoD=0 length=33177600
+PASS preview geometry MAE=0.5422

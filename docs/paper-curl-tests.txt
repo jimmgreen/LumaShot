@@ -1,0 +1,13 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start  1: cursor_capture
+1/4 Test  #1: cursor_capture ...................   Passed    0.15 sec
+    Start  8: paper_appearance
+2/4 Test  #8: paper_appearance .................   Passed    0.72 sec
+    Start  9: pin_interaction
+3/4 Test  #9: pin_interaction ..................   Passed   35.45 sec
+    Start 11: pin_image
+4/4 Test #11: pin_image ........................   Passed    0.09 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =  36.43 sec

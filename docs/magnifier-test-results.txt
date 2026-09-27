@@ -1,0 +1,443 @@
+Start testing: Sep 15 17:18 中国标准时间
+----------------------------------------------------------
+1/13 Testing: cursor_capture
+1/13 Test: cursor_capture
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_capture_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"cursor_capture" start time: Sep 15 17:18 中国标准时间
+Output:
+----------------------------------------------------------
+[PASS] arrow
+[PASS] cursor does not alter pixels outside its true bounds
+[PASS] selection excludes original cursor position
+[PASS] hand
+[PASS] cursor does not alter pixels outside its true bounds
+[PASS] selection excludes original cursor position
+[PASS] text
+[PASS] cursor does not alter pixels outside its true bounds
+[PASS] selection excludes original cursor position
+[PASS] horizontal resize
+[PASS] cursor does not alter pixels outside its true bounds
+[PASS] selection excludes original cursor position
+[PASS] vertical resize
+[PASS] cursor does not alter pixels outside its true bounds
+[PASS] selection excludes original cursor position
+[PASS] monochrome XOR cursor preserves hotspot and negative desktop origin
+[PASS] transparent cursor mask preserves background
+[PASS] cursor survives destruction of source handle
+[PASS] cursor clips correctly at a one-pixel selection
+[PASS] off-selection cursor is not moved into the capture
+[PASS] hidden cursor is omitted
+Alpha cursor pixel: 0xff80007f
+[PASS] 32-bit alpha cursor blends into the captured background
+[PASS] export alpha remains opaque
+[PASS] saved PNG retains cursor pixels exactly
+[PASS] empty intersection is rejected
+[PASS] 200 cursor captures release all GDI objects
+Failures: 0
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"cursor_capture" end time: Sep 15 17:18 中国标准时间
+"cursor_capture" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/13 Testing: annotation_render
+2/13 Test: annotation_render
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_render_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"annotation_render" start time: Sep 15 17:18 中国标准时间
+Output:
+----------------------------------------------------------
+[PASS] adding annotations creates undo history
+[PASS] undo removes the last annotation
+[PASS] redo restores the annotation
+[PASS] selected annotation can be deleted
+[PASS] deletion can be undone
+[PASS] rectangle renders at physical desktop coordinates
+[PASS] annotation export preserves the frozen cursor
+[PASS] empty annotation export is pixel exact
+[PASS] PNG preserves annotations and cursor together
+[PASS] mosaic averages image cells instead of painting a cosmetic overlay
+[PASS] mosaic preserves pixels outside the redacted region
+[PASS] horizontal mosaic stroke changes pixels
+[PASS] mosaic stroke can be undone without altering the source
+[PASS] mosaic redo reproduces the exact result
+[PASS] vertical mosaic stroke changes pixels
+[PASS] mosaic stroke can be undone without altering the source
+[PASS] mosaic redo reproduces the exact result
+[PASS] single mosaic dab changes pixels
+[PASS] mosaic stroke can be undone without altering the source
+[PASS] mosaic redo reproduces the exact result
+[PASS] mosaic bridges a long horizontal gesture on a negative-origin display
+[PASS] mosaic preserves distant pixels
+[PASS] saved PNG contains the actual mosaic pixels
+[PASS] toolbar fits negative-origin display at mixed DPI scales
+[PASS] toolbar hit testing matches painted buttons
+[PASS] all property controls stay inside the panel and respond at their painted positions
+[PASS] toolbar fits negative-origin display at mixed DPI scales
+[PASS] toolbar hit testing matches painted buttons
+[PASS] all property controls stay inside the panel and respond at their painted positions
+[PASS] toolbar fits negative-origin display at mixed DPI scales
+[PASS] toolbar hit testing matches painted buttons
+[PASS] all property controls stay inside the panel and respond at their painted positions
+[PASS] toolbar wraps on narrow high-DPI displays
+[PASS] properties wrap without clipping on a narrow display
+Failures: 0
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"annotation_render" end time: Sep 15 17:18 中国标准时间
+"annotation_render" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/13 Testing: color_picker
+3/13 Test: color_picker
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_color_picker_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"color_picker" start time: Sep 15 17:18 中国标准时间
+Output:
+----------------------------------------------------------
+PASS RGB HSV roundtrip
+PASS RGB HSV roundtrip
+PASS RGB HSV roundtrip
+PASS RGB HSV roundtrip
+PASS RGB HSV roundtrip
+PASS mixed case hex
+PASS invalid hex preserves color
+PASS negative origin and DPI bounds
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS negative origin and DPI bounds
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS negative origin and DPI bounds
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS control hit region
+PASS typed hex updates color
+PASS invalid RGB retains valid color
+PASS RGB spinner clamps
+PASS gray preserves chosen hue
+PASS drag clamps outside square
+PASS recent colors deduplicate
+PASS acrylic picker rendering
+PASS acrylic picker rendering
+<end of output>
+Test time =   0.50 sec
+----------------------------------------------------------
+Test Passed.
+"color_picker" end time: Sep 15 17:18 中国标准时间
+"color_picker" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/13 Testing: ocr_text
+4/13 Test: ocr_text
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_ocr_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"ocr_text" start time: Sep 15 17:18 中国标准时间
+Output:
+----------------------------------------------------------
+PASS CTC blanks and duplicates
+PASS CTC positions are not equal-width
+PASS reverse selection
+PASS empty selection
+PASS cross-line reverse selection preserves newline
+PASS highlight ranges match copied glyphs
+PASS combining marks and surrogate pairs stay intact
+PASS IPC preserves text and geometry
+PASS truncated IPC response is rejected
+PASS non-UTF8 system errors cannot escape the background error handler
+PASS reading order separates columns
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"ocr_text" end time: Sep 15 17:18 中国标准时间
+"ocr_text" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/13 Testing: selection_tools
+5/13 Test: selection_tools
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_selection_tools_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"selection_tools" start time: Sep 15 17:18 中国标准时间
+Output:
+----------------------------------------------------------
+PASS continuous highlight joins glyph gaps per line
+PASS reverse multiline selection preserves graphemes
+PASS reverse selection handles use reading order
+PASS toolbar stays on screen at negative origin and mixed DPI
+PASS toolbar stays on screen at negative origin and mixed DPI
+PASS toolbar stays on screen at negative origin and mixed DPI
+PASS toolbar stays on screen at negative origin and mixed DPI
+PASS toolbar stays on screen at negative origin and mixed DPI
+PASS toolbar stays on screen at negative origin and mixed DPI
+PASS selection and toolbar render with production drawing functions
+<end of output>
+Test time =   0.34 sec
+----------------------------------------------------------
+Test Passed.
+"selection_tools" end time: Sep 15 17:18 中国标准时间
+"selection_tools" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/13 Testing: paper_appearance
+6/13 Test: paper_appearance
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_paper_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"paper_appearance" start time: Sep 15 17:18 中国标准时间
+Output:
+----------------------------------------------------------
+PASS rounded paper and folded corner preserve image corners
+PASS paper mapping roundtrips at mixed DPI
+PASS shadow is transparent over image
+PASS soft shadow has visible exterior pixels
+PASS rounded paper and folded corner preserve image corners
+PASS paper mapping roundtrips at mixed DPI
+PASS shadow is transparent over image
+PASS soft shadow has visible exterior pixels
+PASS rounded paper and folded corner preserve image corners
+PASS paper mapping roundtrips at mixed DPI
+PASS shadow is transparent over image
+PASS soft shadow has visible exterior pixels
+PASS rounded paper and folded corner preserve image corners
+PASS paper mapping roundtrips at mixed DPI
+PASS shadow is transparent over image
+PASS soft shadow has visible exterior pixels
+PASS rounded paper and folded corner preserve image corners
+PASS paper mapping roundtrips at mixed DPI
+PASS shadow is transparent over image
+PASS soft shadow has visible exterior pixels
+PASS rounded paper and folded corner preserve image corners
+PASS paper mapping roundtrips at mixed DPI
+PASS shadow is transparent over image
+PASS soft shadow has visible exterior pixels
+PASS B appearance rendered using production paper and shadow code
+4K shadow one-time generation ms: 54.2203; alpha bitmap MiB: 35.0156
+<end of output>
+Test time =   0.44 sec
+----------------------------------------------------------
+Test Passed.
+"paper_appearance" end time: Sep 15 17:18 中国标准时间
+"paper_appearance" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/13 Testing: pin_interaction
+7/13 Test: pin_interaction
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_pin_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot
+"pin_interaction" start time: Sep 15 17:18 中国标准时间
+Output:
+----------------------------------------------------------
+PASS no OCR process before first pin
+PASS pin window available while recognizing
+PASS paper padding surrounds full image without title bar
+PASS paper frame preserves original screenshot position
+PASS paper and fold leave every image pixel intact
+PASS moving reuses shadow cache and shadow passes mouse input through
+PASS 120 batched drag positions keep shadow aligned without regenerating pixels
+PASS pending OCR protects visible text but allows uniform blank close
+PASS real worker IPC recognizes pinned image
+PASS one shared OCR worker
+PASS real mouse messages select text
+PASS selection opens independent toolbar
+PASS end handle starts selection adjustment without moving image
+PASS handle contracts text selection and restores toolbar
+PASS all four selection marking tools apply
+PASS mark export changes pixels without modifying OCR source
+PASS same marking tool toggles off for same selection
+PASS toolbar click applies wave and preserves selection
+PASS image export excludes selection handles and toolbar
+PASS Escape clears selection and hides toolbar while keeping pin
+PASS triple click selects entire line
+PASS double and triple click on text never closes pin
+PASS text highlight never modifies image pixels
+PASS DPI change preserves physical image width without OCR rerun
+PASS DPI-scaled paper inset maps pointer back to OCR pixels
+PASS retry versions supersede previous recognition
+PASS closing queued pin discards it immediately
+PASS latest retry completes after cancellation
+PASS multiple pins never start parallel OCR workers
+PASS single blank click keeps pin open
+PASS double click blank closes pin
+PASS closing pin also destroys shadow
+PASS closed pin releases image and selection state
+waiting for 30 second worker idle release
+PASS idle OCR process exits and releases its memory
+<end of output>
+Test time =  35.04 sec
+----------------------------------------------------------
+Test Passed.
+"pin_interaction" end time: Sep 15 17:19 中国标准时间
+"pin_interaction" time elapsed: 00:00:35
+----------------------------------------------------------
+
+8/13 Testing: ocr_service
+8/13 Test: ocr_service
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_ocr_service_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"ocr_service" start time: Sep 15 17:19 中国标准时间
+Output:
+----------------------------------------------------------
+cold_ipc_ms=1207.29
+cold_ipc_ms=1140.41
+cold_ipc_ms=1187.67
+cold_ipc_ms=1112.81
+cold_ipc_ms=1099.07
+cold_ipc_ms=1094.48
+cold_ipc_ms=1127.84
+cold_ipc_ms=1113
+cold_ipc_ms=1143.49
+cold_ipc_ms=1111.9
+cold_1080p_20lines_P95_ms=1207.29
+PASS repeated cold launches with real model and shared memory
+PASS canceled version never replaces latest
+PASS worker crash becomes a recoverable error
+PASS retry starts a new worker after crash
+<end of output>
+Test time =  14.32 sec
+----------------------------------------------------------
+Test Passed.
+"ocr_service" end time: Sep 15 17:19 中国标准时间
+"ocr_service" time elapsed: 00:00:14
+----------------------------------------------------------
+
+9/13 Testing: pin_image
+9/13 Test: pin_image
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_pin_image_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"pin_image" start time: Sep 15 17:19 中国标准时间
+Output:
+----------------------------------------------------------
+PASS OCR restores sampled cursor background at negative coordinates
+PASS display still contains sampled cursor
+PASS redaction is applied after cursor restoration; raw source never replaces mosaic
+PASS partial cursor intersection and cropped redaction are correct
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"pin_image" end time: Sep 15 17:19 中国标准时间
+"pin_image" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/13 Testing: capture_to_pin
+10/13 Test: capture_to_pin
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_capture_pin_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"capture_to_pin" start time: Sep 15 17:19 中国标准时间
+Output:
+----------------------------------------------------------
+Synthetic drag event-to-present p95 ms: 0.9556; paints completed: 1
+PASS synthetic capture toolbar creates persistent pin and closes overlay
+<end of output>
+Test time =   2.90 sec
+----------------------------------------------------------
+Test Passed.
+"capture_to_pin" end time: Sep 15 17:19 中国标准时间
+"capture_to_pin" time elapsed: 00:00:02
+----------------------------------------------------------
+
+11/13 Testing: capture_startup
+11/13 Test: capture_startup
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_startup_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"capture_startup" start time: Sep 15 17:19 中国标准时间
+Output:
+----------------------------------------------------------
+Initialization while visible: 0/1; hover paints pending after input: 0/4; drag paints pending: 0/40; lens tracking/hides on drag: 1/1; full paints/lens updates: 44/5; initial posted hover delay ms: 15.9881
+Posted hover to paint-complete ms: p95=16.7584 max=16.9211
+PASS cold overlay preparation and first hover/drag
+<end of output>
+Test time =   4.93 sec
+----------------------------------------------------------
+Test Passed.
+"capture_startup" end time: Sep 15 17:19 中国标准时间
+"capture_startup" time elapsed: 00:00:04
+----------------------------------------------------------
+
+12/13 Testing: magnifier_follow
+12/13 Test: magnifier_follow
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_startup_test.exe" "--hover"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"magnifier_follow" start time: Sep 15 17:19 中国标准时间
+Output:
+----------------------------------------------------------
+Initialization while visible: 0/1; hover paints pending after input: 0/120; drag paints pending: 0/0; lens tracking/hides on drag: 1/1; full paints/lens updates: 3/121; initial posted hover delay ms: 10.5192
+Posted hover to paint-complete ms: p95=0.9606 max=10.5192
+PASS cold overlay preparation and first hover/drag
+<end of output>
+Test time =   2.66 sec
+----------------------------------------------------------
+Test Passed.
+"magnifier_follow" end time: Sep 15 17:19 中国标准时间
+"magnifier_follow" time elapsed: 00:00:02
+----------------------------------------------------------
+
+13/13 Testing: magnifier_pixels
+13/13 Test: magnifier_pixels
+Command: "C:/Users/SS/Desktop/LumaShot/build/lumashot_magnifier_test.exe"
+Directory: C:/Users/SS/Desktop/LumaShot/build
+"magnifier_pixels" start time: Sep 15 17:19 中国标准时间
+Output:
+----------------------------------------------------------
+PASS physical source coordinates with negative monitor origin
+PASS nearest-neighbor 6x pixel block
+PASS next source pixel has its own block
+PASS blue crosshair and border
+PASS lens stays inside monitor at bottom right
+PASS tiny source stays in bounds
+PASS lens passes mouse input and does not activate
+PASS lens hides during selection
+PASS lens can reappear without reallocation
+PASS closing releases lens window
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"magnifier_pixels" end time: Sep 15 17:19 中国标准时间
+"magnifier_pixels" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 15 17:19 中国标准时间

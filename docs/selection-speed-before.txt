@@ -1,0 +1,1 @@
+1080p synthetic drag render ms: median=0.252 p95=0.3838 max=0.5296

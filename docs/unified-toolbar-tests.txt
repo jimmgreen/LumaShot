@@ -1,0 +1,39 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+      Start  1: cursor_capture
+ 1/17 Test  #1: cursor_capture ...................   Passed    0.13 sec
+      Start  2: annotation_render
+ 2/17 Test  #2: annotation_render ................   Passed    0.11 sec
+      Start  3: color_picker
+ 3/17 Test  #3: color_picker .....................   Passed    0.55 sec
+      Start  4: unified_toolbar
+ 4/17 Test  #4: unified_toolbar ..................   Passed    0.03 sec
+      Start  5: shared_controls
+ 5/17 Test  #5: shared_controls ..................   Passed    0.49 sec
+      Start  6: ocr_text
+ 6/17 Test  #6: ocr_text .........................   Passed    0.03 sec
+      Start  7: selection_tools
+ 7/17 Test  #7: selection_tools ..................   Passed    0.39 sec
+      Start  8: paper_appearance
+ 8/17 Test  #8: paper_appearance .................   Passed    0.50 sec
+      Start  9: pin_interaction
+ 9/17 Test  #9: pin_interaction ..................   Passed   35.11 sec
+      Start 10: ocr_service
+10/17 Test #10: ocr_service ......................   Passed   13.74 sec
+      Start 11: pin_image
+11/17 Test #11: pin_image ........................   Passed    0.06 sec
+      Start 12: capture_to_pin
+12/17 Test #12: capture_to_pin ...................   Passed    3.27 sec
+      Start 13: capture_reselect
+13/17 Test #13: capture_reselect .................   Passed    0.39 sec
+      Start 14: capture_startup
+14/17 Test #14: capture_startup ..................   Passed    1.64 sec
+      Start 15: magnifier_follow
+15/17 Test #15: magnifier_follow .................   Passed    2.65 sec
+      Start 16: selection_burst
+16/17 Test #16: selection_burst ..................   Passed    1.06 sec
+      Start 17: magnifier_pixels
+17/17 Test #17: magnifier_pixels .................   Passed    0.04 sec
+
+100% tests passed, 0 tests failed out of 17
+
+Total Test time (real) =  60.21 sec

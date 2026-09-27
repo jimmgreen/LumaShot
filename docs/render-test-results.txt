@@ -1,0 +1,35 @@
+[PASS] adding annotations creates undo history
+[PASS] undo removes the last annotation
+[PASS] redo restores the annotation
+[PASS] selected annotation can be deleted
+[PASS] deletion can be undone
+[PASS] rectangle renders at physical desktop coordinates
+[PASS] annotation export preserves the frozen cursor
+[PASS] empty annotation export is pixel exact
+[PASS] PNG preserves annotations and cursor together
+[PASS] mosaic averages image cells instead of painting a cosmetic overlay
+[PASS] mosaic preserves pixels outside the redacted region
+[PASS] horizontal mosaic stroke changes pixels
+[PASS] mosaic stroke can be undone without altering the source
+[PASS] mosaic redo reproduces the exact result
+[PASS] vertical mosaic stroke changes pixels
+[PASS] mosaic stroke can be undone without altering the source
+[PASS] mosaic redo reproduces the exact result
+[PASS] single mosaic dab changes pixels
+[PASS] mosaic stroke can be undone without altering the source
+[PASS] mosaic redo reproduces the exact result
+[PASS] mosaic bridges a long horizontal gesture on a negative-origin display
+[PASS] mosaic preserves distant pixels
+[PASS] saved PNG contains the actual mosaic pixels
+[PASS] toolbar fits negative-origin display at mixed DPI scales
+[PASS] toolbar hit testing matches painted buttons
+[PASS] all property controls stay inside the panel and respond at their painted positions
+[PASS] toolbar fits negative-origin display at mixed DPI scales
+[PASS] toolbar hit testing matches painted buttons
+[PASS] all property controls stay inside the panel and respond at their painted positions
+[PASS] toolbar fits negative-origin display at mixed DPI scales
+[PASS] toolbar hit testing matches painted buttons
+[PASS] all property controls stay inside the panel and respond at their painted positions
+[PASS] toolbar wraps on narrow high-DPI displays
+[PASS] properties wrap without clipping on a narrow display
+Failures: 0

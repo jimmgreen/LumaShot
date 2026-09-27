@@ -1,0 +1,31 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+      Start  1: cursor_capture
+ 1/13 Test  #1: cursor_capture ...................   Passed    0.36 sec
+      Start  2: annotation_render
+ 2/13 Test  #2: annotation_render ................   Passed    1.42 sec
+      Start 12: capture_to_pin
+ 3/13 Test #12: capture_to_pin ...................   Passed    2.99 sec
+      Start 13: capture_reselect
+ 4/13 Test #13: capture_reselect .................   Passed    0.57 sec
+      Start 14: capture_startup
+ 5/13 Test #14: capture_startup ..................   Passed    1.70 sec
+      Start 15: magnifier_follow
+ 6/13 Test #15: magnifier_follow .................   Passed    2.67 sec
+      Start 16: selection_burst
+ 7/13 Test #16: selection_burst ..................   Passed    1.15 sec
+      Start 17: magnifier_pixels
+ 8/13 Test #17: magnifier_pixels .................   Passed    0.04 sec
+      Start 21: text_edit
+ 9/13 Test #21: text_edit ........................   Passed    1.91 sec
+      Start 22: capture_elements
+10/13 Test #22: capture_elements .................   Passed    2.58 sec
+      Start 24: startup_render_pixels
+11/13 Test #24: startup_render_pixels ............   Passed    2.19 sec
+      Start 25: text_context_memory
+12/13 Test #25: text_context_memory ..............   Passed    3.32 sec
+      Start 26: text_export_memory
+13/13 Test #26: text_export_memory ...............   Passed    3.71 sec
+
+100% tests passed, 0 tests failed out of 13
+
+Total Test time (real) =  24.66 sec

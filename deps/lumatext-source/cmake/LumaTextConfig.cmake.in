@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+if(@LUMATEXT_BUILD_STATIC@)
+  find_package(freetype 2.13.3 CONFIG QUIET)
+  if(NOT TARGET Freetype::Freetype)
+    find_dependency(Freetype 2.13.3)
+  endif()
+  if(NOT TARGET freetype)
+    add_library(freetype INTERFACE IMPORTED)
+    set_property(TARGET freetype PROPERTY INTERFACE_LINK_LIBRARIES Freetype::Freetype)
+  endif()
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/LumaTextTargets.cmake")

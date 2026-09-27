@@ -1,0 +1,17 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start  1: media_recording
+1/6 Test  #1: media_recording ..................   Passed    4.47 sec
+    Start  3: recording_ui
+2/6 Test  #3: recording_ui .....................   Passed    4.07 sec
+    Start  5: cursor_capture
+3/6 Test  #5: cursor_capture ...................   Passed    0.28 sec
+    Start 40: gif_quality
+4/6 Test #40: gif_quality ......................   Passed    3.35 sec
+    Start 41: recording_pixels
+5/6 Test #41: recording_pixels .................   Passed    0.66 sec
+    Start 43: gif_pipeline
+6/6 Test #43: gif_pipeline .....................   Passed    2.68 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Total Test time (real) =  15.67 sec

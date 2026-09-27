@@ -1,0 +1,5 @@
+width,height,mode,encoded_bytes,final_bytes,encode_seconds,optimize_seconds,parent_peak_working_set_mib
+1920,1080,before,13641033,13641033,12.594,0,143.641
+1920,1080,after,1322842,1295731,11.141,13.296,148.527
+3840,2160,before,33329957,33329957,47.719,0,487.598
+3840,2160,after,2590320,2533267,41.078,26.407,519.312

@@ -1,0 +1,42 @@
+/build/
+/build-before-ocr/
+/deps/ocr/onnxruntime.nupkg
+/deps/ocr/build/
+/deps/ocr/runtimes/
+/deps/ocr/*.onnx
+/dist/
+/bench_data/
+/.c2c.json
+*.user
+
+# Regenerable test outputs (CTest normally writes these below build/).
+/clipboard-*.png
+/file-icon-*.png
+/*-fixture/
+/mp4-quality-baseline/
+/gif-benchmark-*/
+/recording-test-output/
+/recording-*.png
+/pin-zoom-preview.png
+/*-preview.png
+/paper-curl-detail.png
+/optimization-batch1/
+
+# Local build/package logs and obsolete installer check outputs.
+/*.log
+/*-installer-sha.txt
+/*-installer-size.txt
+
+# Python bytecode caches.
+__pycache__/
+*.py[cod]
+
+# Local screenshots and developer tooling; retain authored assets and docs.
+/settings-*.png
+/text-editor-lumatext-*.png
+/.vs/
+/.idea/
+.env
+.env.*
+*.pfx
+*.p12

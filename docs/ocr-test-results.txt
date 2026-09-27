@@ -1,0 +1,19 @@
+Test project C:/Users/SS/Desktop/LumaShot/build
+    Start 1: cursor_capture
+1/7 Test #1: cursor_capture ...................   Passed    0.13 sec
+    Start 2: annotation_render
+2/7 Test #2: annotation_render ................   Passed    0.10 sec
+    Start 3: ocr_text
+3/7 Test #3: ocr_text .........................   Passed    0.04 sec
+    Start 4: pin_interaction
+4/7 Test #4: pin_interaction ..................   Passed   34.89 sec
+    Start 5: ocr_service
+5/7 Test #5: ocr_service ......................   Passed   19.12 sec
+    Start 6: pin_image
+6/7 Test #6: pin_image ........................   Passed    0.13 sec
+    Start 7: capture_to_pin
+7/7 Test #7: capture_to_pin ...................   Passed    2.70 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =  57.17 sec

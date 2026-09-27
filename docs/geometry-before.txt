@@ -1,0 +1,12 @@
+638-cpu stride=2552 -> 2560 decoded=640x368 flags=32 twoD=0 length=942080
+FAIL preview geometry MAE=22.1377
+638-gpu stride=2552 -> 2560 decoded=640x368 flags=32 twoD=0 length=942080
+FAIL preview geometry MAE=22.0398
+1918-cpu stride=7672 -> 7680 decoded=1920x1088 flags=32 twoD=0 length=8355840
+FAIL preview geometry MAE=19.1522
+1918-gpu stride=7672 -> 7680 decoded=1920x1088 flags=32 twoD=0 length=8355840
+FAIL preview geometry MAE=18.9823
+3838-cpu stride=15352 -> 15360 decoded=3840x2160 flags=32 twoD=0 length=33177600
+FAIL preview geometry MAE=19.1234
+3838-gpu stride=15352 -> 15360 decoded=3840x2160 flags=32 twoD=0 length=33177600
+FAIL preview geometry MAE=18.8953

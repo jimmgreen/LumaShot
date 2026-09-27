@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" fill="none">
+  <title>LumaShot — vector reconstruction of icon.png</title>
+  <defs>
+    <linearGradient id="whiteTL" x1="316" y1="321" x2="465" y2="494" gradientUnits="userSpaceOnUse"><stop stop-color="#fcfcfe"/><stop offset="1" stop-color="#eff5fd"/></linearGradient>
+    <linearGradient id="cyanTR" x1="809" y1="429" x2="925" y2="325" gradientUnits="userSpaceOnUse"><stop stop-color="#50cefc"/><stop offset="1" stop-color="#a6f3fc"/></linearGradient>
+    <linearGradient id="cyanBL" x1="409" y1="784" x2="299" y2="890" gradientUnits="userSpaceOnUse"><stop stop-color="#64c7fc"/><stop offset="1" stop-color="#a0f2fc"/></linearGradient>
+    <linearGradient id="whiteBR" x1="749" y1="898" x2="930" y2="759" gradientUnits="userSpaceOnUse"><stop stop-color="#f2f7fd"/><stop offset="1" stop-color="#fbfcfe"/></linearGradient>
+    <linearGradient id="starV" x1="626" y1="469" x2="626" y2="771" gradientUnits="userSpaceOnUse"><stop stop-color="#b3edfc"/><stop offset=".5" stop-color="#8dd9fc"/><stop offset="1" stop-color="#42c5fc"/></linearGradient>
+    <linearGradient id="starH" x1="469" y1="620" x2="780" y2="620" gradientUnits="userSpaceOnUse"><stop stop-color="#61a5fb" stop-opacity=".8"/><stop offset=".26" stop-color="#61a5fb" stop-opacity=".5"/><stop offset=".5" stop-color="#80cfff" stop-opacity="0"/><stop offset=".72" stop-color="#70fff8" stop-opacity=".38"/><stop offset="1" stop-color="#a3fff0" stop-opacity=".9"/></linearGradient>
+    <path id="spark" d="M625.1 470 Q626 467 626.9 470 C642.7 552.4 681.7 595.4 777.9 618.3 Q780.5 619.1 778 620 C691.7 637.4 645.7 686.8 626.9 769.5 Q626 772.2 625.1 769.5 C608.7 684.1 564.6 639.2 470.4 620.1 Q467.8 619.2 470.4 618.4 C559.9 595.8 608.4 552.5 625.1 470Z"/>
+  </defs>
+  <rect x="125" y="136" width="1004" height="960" rx="243" fill="#131f2f" fill-opacity=".995"/>
+  <path d="M364 307.5H485.5C504 307.5 515 320 515 339.5V342C515 362 503.5 374 486 374H394C373 374 358 390 358 411V494C358 516 345 529 323 529C301 529 288 516 288 494V388C288 346 324 307.5 364 307.5Z" fill="url(#whiteTL)" stroke="#ffffff" stroke-opacity=".5" stroke-width="1"/>
+  <path d="M765 307.5H885C928 307.5 963 342 963 387V495C963 517 949 530 928 530C906 530 893 517 893 496V411C893 390 878 374 857 374H767C746 374 735.5 361 735.5 342V340C735.5 320 747 307.5 765 307.5Z" fill="url(#cyanTR)" stroke="#ffffff" stroke-opacity=".5" stroke-width="1"/>
+  <use href="#spark" fill="url(#starV)"/>
+  <use href="#spark" fill="url(#starH)"/>
+  <path d="M323 703.5C345 703.5 358.5 716 358.5 737V815C358.5 838 373 852.5 394 852.5H485C504 852.5 515 865 515 885C515 906 503 919 484 919H365C321 919 288 887 288 844V738C288 716 301 703.5 323 703.5Z" fill="url(#cyanBL)" stroke="#ffffff" stroke-opacity=".5" stroke-width="1"/>
+  <path d="M926 702.5C948 702.5 961.5 716 961.5 737V841C961.5 885 930 919 885 919H766C747 919 735.5 906 735.5 886C735.5 865 748 852.5 767 852.5H854C877 852.5 891.5 838 891.5 815V737C891.5 716 905 702.5 926 702.5Z" fill="url(#whiteBR)" stroke="#ffffff" stroke-opacity=".5" stroke-width="1"/>
+</svg>

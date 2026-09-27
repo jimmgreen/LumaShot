@@ -1,0 +1,13 @@
+{
+  "version": "1.22.0",
+  "source": "https://github.com/microsoft/onnxruntime",
+  "revision": "f217402897f40ebba457e2421bc0a4702771968e",
+  "configuration": "Release with LTO, reduced operator registry, disable_ml_ops; full ONNX format and MLAS retained",
+  "sha256": "f98dd40890987f103df3c0a8d135d64683d03e73a9e9d1764d395ccd9f85cbd5",
+  "bytes": 8611328,
+  "models": {
+    "det.onnx": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e",
+    "rec.onnx": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+  },
+  "operatorsSha256": "f025642ffbcc6ac5c44d090f08fab7e97943128868a2bd7d42b109a0fc4e7c66"
+}

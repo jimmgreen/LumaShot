@@ -1,0 +1,21 @@
+{
+  "lexilla": {
+    "url": "https://www.scintilla.org/lexilla553.zip",
+    "version": "5.5.3",
+    "sha256": "2092B1DD18355321717E3BDE25148E4C87E691723CA2B06A65E29A307C5462A6"
+  },
+  "lexers": [
+    "CPP",
+    "Python",
+    "JSON",
+    "Bash",
+    "PowerShell",
+    "SQL",
+    "Markdown"
+  ],
+  "scintillaHeaders": {
+    "url": "https://www.scintilla.org/scintilla566.zip",
+    "version": "5.6.6",
+    "sha256": "A0C0CDF1CF226DC6252020CE9A87A939A8B615E65269DB40AC9123B28FA20A9D"
+  }
+}

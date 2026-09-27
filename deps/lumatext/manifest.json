@@ -1,0 +1,47 @@
+{
+  "runtime": "MT",
+  "configuration": "Release",
+  "files": [
+    {
+      "path": "bin/lumatext.dll",
+      "sha256": "1EAE7113B138FB26C9D47234D954CB53DABFD1FE0824EB10B41F831781D10535",
+      "bytes": 1648128
+    },
+    {
+      "path": "include/lumatext/lumatext.h",
+      "sha256": "0AD38A3BF02667FC50A4C8F49D68ADB7D39D9B928C35D6D54B6F6B2997CCF1B5",
+      "bytes": 11210
+    },
+    {
+      "path": "include/lumatext/lumatext.hpp",
+      "sha256": "CC9BE6D7A57AC68F3DA5C02E7C4BE04DF1A5B4BE2267CD922C06103E78B5B433",
+      "bytes": 1444
+    },
+    {
+      "path": "lib/lumatext.lib",
+      "sha256": "550BE49CF202371413629605FD83FFF5035531899E4F392E4DF98670131AB7E7",
+      "bytes": 7520
+    },
+    {
+      "path": "licenses/FreeType.txt",
+      "sha256": "08C135755DD589039470F1FDBB400DAAABAAA50D0B366D19CEBFF4D22986BAA1",
+      "bytes": 6743
+    },
+    {
+      "path": "licenses/HarfBuzz.txt",
+      "sha256": "9818875FA596557BC1DCDB3B1E4C2840D4355758D86115AC519B3D26B550F6D2",
+      "bytes": 1570
+    },
+    {
+      "path": "licenses/LICENSE",
+      "sha256": "AF235DA00C8F63A2561893B4F23AE41A60B114CB121ED5BBAE933F48549E3DBE",
+      "bytes": 1079
+    },
+    {
+      "path": "licenses/Unicode.txt",
+      "sha256": "027337B3A0BC5F3C958E1629D5A7650926C2B0698AB53BFC973F245EBC04B531",
+      "bytes": 1995
+    }
+  ],
+  "architecture": "x64"
+}

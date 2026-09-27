@@ -1,0 +1,37 @@
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+IDI_LUMASHOT ICON "app.ico"
+#pragma code_page(65001)
+1 RT_MANIFEST "app.manifest"
+100 DIALOGEX 0, 0, 333, 379
+STYLE DS_SETFONT | WS_POPUP | WS_CLIPCHILDREN
+EXSTYLE WS_EX_CONTROLPARENT
+// Window text is set at runtime: CAPTION implicitly adds WS_CAPTION.
+FONT 10, "Microsoft YaHei UI"
+BEGIN
+    CONTROL "截图快捷键", 103, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "GIF 快捷键", 119, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "录屏快捷键", 120, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "剪贴板快捷键", 128, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "包含鼠标指针", 101, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "截图粘贴为文件", 115, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "开机自启动", 127, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "开启剪贴板", 126, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "退出后保留剪贴板历史", 129, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "PNG", 116, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "JPEG", 117, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "BMP", 118, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "无", 121, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "边框阴影", 122, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "圆角卡片", 123, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "拍立得", 124, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "卷角纸张", 125, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "跟随系统", 110, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "浅色", 111, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "深色", 112, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "恢复默认", 113, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "取消", IDCANCEL, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "保存", IDOK, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "×", 114, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+END

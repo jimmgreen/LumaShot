@@ -1,6 +1,7 @@
 // Synthetic images only; exercise the production layered-window render path.
 #include "../src/pin/pin.cpp"
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <numeric>
 namespace lumashot {
@@ -14,7 +15,7 @@ static int Run(){
    auto image=MakeFrame({0,0,size.x,size.y},0xffedf3fa);for(int y=0;y<size.y;++y)for(int x=0;x<size.x;++x)if((x/24+y/24)%2)image.pixels[size_t(y)*size.x+x]=0xff4779ae;
    manager.Create(image,image,{100,100},std::nullopt,{},false);auto& p=*manager.pins_.rbegin()->second;
    for(auto selected:{PinStyle::Simple,PinStyle::Curl}){
-    style=selected;manager.RefreshAppearance();const auto builds=p.shadow_builds;
+    style=selected;manager.RefreshAppearance();const auto builds=p.shadow_builds;const auto uploads=p.bitmap_uploads;
     std::vector<double> times;const POINT anchor{420,340};const Point image_anchor{320,240};
     for(int i=0;i<24;++i){p.zoom=.55f+float(i%12)*.025f;
      const auto layout=MakePaperLayout(int(std::lround(size.x*p.zoom)),int(std::lround(size.y*p.zoom)),p.dpi,p.style);
@@ -22,8 +23,17 @@ static int Run(){
      times.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
      RECT r{};GetWindowRect(p.window,&r);const auto q=p.WindowPoint(image_anchor);expect(std::abs(r.left+q.x-anchor.x)<.05f&&std::abs(r.top+q.y-anchor.y)<.05f,"zoom preserves cursor anchor including fractional origin");
     }
+    if(GetEnvironmentVariableW(L"LUMASHOT_PROFILE_PIN",nullptr,0)){
+     std::vector<double> draw,present;
+     for(int i=0;i<12;++i){auto t=std::chrono::steady_clock::now();manager.Draw(p,p.target.Get());draw.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t).count());
+      RECT rect{};GetWindowRect(p.window,&rect);POINT origin{rect.left,rect.top},source{};SIZE sz{p.CanvasWidth(),p.CanvasHeight()};BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
+      t=std::chrono::steady_clock::now();UpdateLayeredWindow(p.window,nullptr,&origin,&sz,p.surface->Dc(),&source,0,&blend,ULW_ALPHA);present.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t).count());}
+     std::sort(draw.begin(),draw.end());std::sort(present.begin(),present.end());
+     std::cout<<"SPLIT "<<size.x<<'x'<<size.y<<" style="<<int(selected)<<" canvas="<<p.CanvasWidth()<<'x'<<p.CanvasHeight()<<" draw_p50="<<draw[6]<<" ulw_p50="<<present[6]<<'\n';
+    }
     std::sort(times.begin(),times.end());std::cout<<"PERF "<<size.x<<'x'<<size.y<<" style="<<int(selected)<<" mean_ms="<<std::accumulate(times.begin(),times.end(),0.)/times.size()<<" p95_ms="<<times[22]<<" shadow_builds="<<p.shadow_builds-builds<<'\n';
     expect(!p.ocr_enabled&&p.version==0,"plain pin zoom never starts OCR");
+    expect(p.bitmap_uploads==uploads,"zoom frames share the uploaded image across resized targets");
    }
    p.zoom_goal=p.zoom;RECT r{};GetWindowRect(p.window,&r);POINT anchor{r.left+p.Inset()+100,r.top+p.Inset()+100};
    const auto old=p.zoom_goal;p.locked=true;manager.Zoom(p,120,anchor);expect(p.zoom_goal==old,"locked pin ignores wheel");p.locked=false;

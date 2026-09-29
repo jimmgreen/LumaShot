@@ -2,6 +2,7 @@
 #include "clipboard_preview_probe.h"
 #include "../src/clipboard/panel.cpp"
 #include "export/png.h"
+#include <algorithm>
 #include <psapi.h>
 #include <atomic>
 #include <chrono>
@@ -178,7 +179,7 @@ static int Run(int cycles){
     Require(p.composition!=nullptr,"folded audit presents through the real desktop composition path");
     const auto folded_idle=Clock::now();
     while(Ms(folded_idle)<11000){Pump();Sleep(20);}
-    Sample("folded_driver_trimmed");
+    Sample("folded_driver_trimmed");Require(!p.factory&&!p.target&&p.composition!=nullptr,"folded idle releases software renderer caches but keeps its presented strip");
     if(GetEnvironmentVariableW(L"LUMASHOT_PROFILE_HEAPS",nullptr,0)){
         HeapSnapshot("before_optimize");Sample("heap_before_optimize");
         HEAP_OPTIMIZE_RESOURCES_INFORMATION info{HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION,0};
@@ -186,15 +187,50 @@ static int Run(int cycles){
         std::cout<<"HEAP_OPTIMIZE success="<<optimized<<" ms="<<Ms(start)<<std::endl;
         Sample("heap_after_optimize");HeapSnapshot("after_optimize");
     }
+    {   // Idle folded strip: layered copy replaces the D3D11/DComp device, repaints stay layered, input wakes it.
+        ShowWindow(p.folded_window,SW_SHOWNOACTIVATE);p.Present();Pump();
+        Require(p.composition!=nullptr&&!p.idle_layered,"visible folded strip presents through composition first");
+        Sample("folded_visible");
+        const auto idle_device=ClipboardCompositionTest::Lifetime(*p.composition);
+        const auto strip_start=Clock::now();p.ReleaseRenderer();p.EnterIdleStrip();const double enter_ms=Ms(strip_start);Pump();
+        Require(p.idle_layered&&!p.composition&&p.idle_strip&&IsWindowVisible(p.idle_strip),"idle folded strip swaps to a layered copy and releases composition");
+        RECT folded_rect{},idle_rect{};GetWindowRect(p.folded_window,&folded_rect);GetWindowRect(p.idle_strip,&idle_rect);
+        Require(EqualRect(&folded_rect,&idle_rect)!=FALSE,"layered copy covers the folded strip exactly");
+        Require((GetWindowLongPtrW(p.idle_strip,GWL_EXSTYLE)&(WS_EX_TRANSPARENT|WS_EX_LAYERED|WS_EX_NOACTIVATE))==(WS_EX_TRANSPARENT|WS_EX_LAYERED|WS_EX_NOACTIVATE),"layered copy never takes input or focus");
+        Require(idle_device.expired(),"idle folded strip releases the shared D3D11 device");
+        Sample("folded_idle_layered");
+        const auto repaint_start=Clock::now();p.Present();const double repaint_ms=Ms(repaint_start);Pump();
+        Require(p.idle_layered&&!p.composition&&IsWindowVisible(p.idle_strip),"idle repaint (count change) stays on the layered copy");
+        p.ReleaseRenderer();Pump();Sample("folded_idle_repainted");
+        std::cout<<"IDLE_STRIP enter_ms="<<enter_ms<<" repaint_ms="<<repaint_ms<<std::endl;
+    }
     const auto folded_reopen=Clock::now();open();
+    Require(!p.idle_layered&&!IsWindowVisible(p.idle_strip)&&p.composition!=nullptr,"opening from idle restores composition and hides the layered copy");
     std::cout<<"FOLD_REOPEN ms="<<Ms(folded_reopen)<<std::endl;
+    {   // Reopen latency from each folded state, 5 runs each. Pointer path: hovering the idle
+        // strip creates the device on a worker before the click; keyboard path pays it inline.
+        std::vector<double> reopen_warm,cold,hovered;
+        for(int run=0;run<5;++run){
+            p.Fold();settle();ShowWindow(p.folded_window,SW_SHOWNOACTIVATE);p.Present();Pump();Sleep(50);
+            auto t=Clock::now();open();reopen_warm.push_back(Ms(t));
+            p.Fold();settle();ShowWindow(p.folded_window,SW_SHOWNOACTIVATE);p.Present();Pump();p.ReleaseRenderer();p.EnterIdleStrip();Pump();Sleep(50);
+            Require(p.idle_layered&&!p.composition&&!p.parked_composition,"strip re-enters idle");
+            t=Clock::now();open();cold.push_back(Ms(t));
+            p.Fold();settle();ShowWindow(p.folded_window,SW_SHOWNOACTIVATE);p.Present();Pump();p.ReleaseRenderer();p.EnterIdleStrip();Pump();
+            SendMessageW(p.folded_window,WM_MOUSEMOVE,0,MAKELPARAM(4,4));
+            Require(ClipboardComposition::Prewarmed(),"hovering the idle strip prewarms graphics off the UI thread");
+            Sleep(150);Pump();t=Clock::now();open();hovered.push_back(Ms(t));
+            Require(!ClipboardComposition::Prewarmed()&&!p.idle_layered&&p.composition!=nullptr,"reopen consumes the prewarmed device");
+        }
+        Times("reopen_from_warm_fold",reopen_warm);Times("reopen_from_idle_strip_keyboard",cold);Times("reopen_from_idle_strip_hover",hovered);
+    }
     p.Fold();settle();p.Present();Pump();
     const auto session=p.disk->Directory();auto t=Clock::now();p.Enable(false,false);const auto first_disable=Ms(t);Pump();
     Require(!p.disk&&!p.window&&!p.search&&!p.factory&&!p.writer&&!p.surface&&!p.file_icons&&p.history.entries.empty()&&clipboard::PreviewWindowTest::Released(p.preview),"disable releases owned resources");
     Require(device_lifetime.expired(),"last window releases shared graphics device without a global strong cache");
     Require(!std::filesystem::exists(session),"disable deletes encrypted session");
     std::cout<<"DISABLE first_ms="<<first_disable<<std::endl;Sample("disabled100history");
-    std::vector<double> disabling;Memory disabled_warm{},disabled_last{};
+    std::vector<double> disabling;std::vector<size_t> disabled_private;Memory disabled_warm{},disabled_last{};
     for(int i=1;i<=cycles;++i){
         Require(p.Enable(true,i%2!=0),"re-enable panel");p.disk=std::make_unique<clipboard::SessionStore>(root/L"store");settle();
         save(Dib(i));clipboard::Entry file;file.kind=clipboard::Kind::Files;file.text=L"synthetic.pdf";file.formats.push_back({CF_HDROP,{0,1,2,3}});save(std::move(file));
@@ -204,10 +240,18 @@ static int Run(int cycles){
         const auto directory=p.disk->Directory();t=Clock::now();p.Enable(false,false);disabling.push_back(Ms(t));Pump();
         Require(!p.disk&&!p.window&&!p.search&&!p.surface&&!p.factory&&!p.writer&&!p.file_icons&&p.images.empty()&&p.file_bitmaps.empty()&&p.history.entries.empty(),"disable clears workers and panel resources");
         Require(clipboard::PreviewWindowTest::Released(p.preview)&&!std::filesystem::exists(directory),"disable clears active preview and session directory");
+        disabled_private.push_back(ReadMemory().bytes);
         if(i==10)disabled_warm=ReadMemory();if(i==1||i==10||i==50||i==100||i==cycles)disabled_last=Sample("disable_cycle",i);
     }
     Times("disable_ui_join_and_cleanup",disabling);
-    Require(disabled_last.bytes<=disabled_warm.bytes+16*1024*1024,"disable cycles retain bounded private memory");
+    // The process heap re-commits and lazily decommits free pages as each cycle's
+    // transient allocations churn, so single samples swing by ~15-20 MB with live
+    // heap unchanged. A leak raises every later sample; compare floors instead.
+    const auto floor=[&](size_t first,size_t last){return *std::min_element(disabled_private.begin()+static_cast<std::ptrdiff_t>(first),disabled_private.begin()+static_cast<std::ptrdiff_t>(last));};
+    const size_t half=disabled_private.size()/2,warm_first=half>=5?half-5:0,tail_first=disabled_private.size()>=5?disabled_private.size()-5:0;
+    const size_t warm_floor=floor(warm_first,std::max(half,warm_first+1)),tail_floor=floor(tail_first,disabled_private.size());
+    std::cout<<"DISABLE_FLOOR warm="<<warm_floor<<" tail="<<tail_floor<<std::endl;
+    Require(tail_floor<=warm_floor+16*1024*1024,"disable cycles retain bounded private memory");
     Require(disabled_last.gdi<=disabled_warm.gdi+2&&disabled_last.user<=disabled_warm.user+2&&disabled_last.handles<=disabled_warm.handles+8,"disable cycles retain bounded handles");
     Idle("disabled");Sample("disabled_settled");
     std::cout<<"PASS resource audit cycles="<<cycles<<" (synthetic process, not real clipboard or target-app paste)"<<std::endl;return 0;

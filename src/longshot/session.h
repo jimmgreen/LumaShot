@@ -124,7 +124,11 @@ private:
     std::wstring message_;
     int notches_{1}, unchanged_steps_{}, still_steps_{};
     double pixels_per_notch_{};
-    std::vector<int> step_notches_;   // wheel notches per auto segment, for undo
+    // Wheel notches that produced each undoable segment (0 = not scrolled by
+    // us), kept in step with the stitcher history so undo scrolls back right.
+    std::deque<int> step_notches_;
+    int pending_notches_{};           // notches of the held low-match segment
+    void RecordSegment(int notches);
     RowSignatures last_sample_;
     int guard_{};
     std::atomic<uint64_t> input_tick_{};  // last user wheel/click in the region
@@ -135,6 +139,7 @@ private:
     std::vector<uint32_t> thumb_;
     std::vector<int> column_;
     int thumb_source_rows_{};
+    int thumb_epoch_{-1};
     std::jthread worker_;
 };
 }

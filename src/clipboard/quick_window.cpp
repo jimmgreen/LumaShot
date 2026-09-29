@@ -2,6 +2,7 @@
 #include "clipboard/composition.h"
 #include "ui/text_renderer.h"
 #include "ui/acrylic.h"
+#include "ui/memory_target.h"
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <cmath>
@@ -35,7 +36,7 @@ struct QuickWindow::Impl {
     std::wstring status;
     Ptr<ID2D1Factory> factory;
     Ptr<IDWriteFactory> writer;
-    Ptr<ID2D1DCRenderTarget> target;
+    Ptr<ID2D1RenderTarget> target;
     Ptr<ID2D1SolidColorBrush> brush;
     Ptr<IDWriteTextFormat> font, smallFont;
     std::unique_ptr<DibSurface> surface;
@@ -114,13 +115,12 @@ struct QuickWindow::Impl {
         }
     }
     void Render() {
-        if (!surface) surface = std::make_unique<DibSurface>(width, height);
+        // Draw in place into the composition's DIB; a new DIB needs a new target.
+        if (!surface) { brush.Reset(); target.Reset(); surface = std::make_unique<DibSurface>(width, height); }
         if (!factory) Check(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory.GetAddressOf()));
         if (!writer) Check(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(writer.GetAddressOf())));
         if (!target) {
-            const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-            Check(factory->CreateDCRenderTarget(&props, &target));
+            target = CreateMemoryRenderTarget(factory.Get(), surface->Pixels(), width, height, width);
             Check(target->CreateSolidColorBrush(D2D1::ColorF(0), &brush));
         }
         auto makeFont = [&](Ptr<IDWriteTextFormat>& result, float size) {
@@ -131,8 +131,6 @@ struct QuickWindow::Impl {
             Check(result->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER));
         };
         makeFont(font, 12.f); makeFont(smallFont, 11.f);
-        const RECT client{0, 0, width, height};
-        Check(target->BindDC(surface->Dc(), &client));
         target->SetDpi(96.f * scale, 96.f * scale);
         target->BeginDraw();
         try {
@@ -289,7 +287,7 @@ void QuickWindow::Show(HWND owner, POINT anchor, float scale, bool dark) {
     const RECT work = monitor.rcWork;
     const int width = std::max(1, std::min(static_cast<int>(std::ceil(360.f * p.scale)), static_cast<int>(work.right - work.left)));
     const int height = std::max(1, std::min(static_cast<int>(std::ceil((Header + 6 * RowHeight + Footer) * p.scale)), static_cast<int>(work.bottom - work.top)));
-    if (width != p.width || height != p.height) { p.surface.reset(); p.width = width; p.height = height; }
+    if (width != p.width || height != p.height) { p.brush.Reset(); p.target.Reset(); p.surface.reset(); p.width = width; p.height = height; }
     const int x = std::clamp(static_cast<int>(anchor.x), static_cast<int>(work.left), static_cast<int>(work.right) - width);
     const int y = std::clamp(static_cast<int>(anchor.y) - height - static_cast<int>(6 * p.scale), static_cast<int>(work.top), static_cast<int>(work.bottom) - height);
     SetWindowPos(p.window, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -309,7 +307,7 @@ void QuickWindow::Update(std::vector<QuickRow> rows, size_t selected, int tab, b
 void QuickWindow::Hide() {
     auto& p = *impl_; p.pressed = Missing; p.pressedTab = -1;
     if (p.window) { if (GetCapture() == p.window) ReleaseCapture(); ShowWindow(p.window, SW_HIDE); }
-    p.composition.reset(); p.surface.reset(); p.brush.Reset(); p.target.Reset();
+    p.composition.reset(); p.brush.Reset(); p.target.Reset(); p.surface.reset();
 }
 bool QuickWindow::Visible() const { return impl_->window && IsWindowVisible(impl_->window); }
 HWND QuickWindow::Window() const { return impl_->window; }

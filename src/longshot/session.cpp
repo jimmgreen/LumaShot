@@ -160,10 +160,11 @@ bool Session::Drain() {
         case Command::Undo:
             if (stitcher_->Undo()) {
                 problem_ = Problem::None;
-                if (mode_ == Mode::Auto && !step_notches_.empty()) {
+                const int notches = step_notches_.empty() ? 0 : step_notches_.back();
+                if (!step_notches_.empty()) step_notches_.pop_back();
+                if (mode_ == Mode::Auto && notches > 0) {
                     // Scroll the page back to where the kept segment ended.
-                    Scroll(step_notches_.back(), -1);
-                    step_notches_.pop_back();
+                    Scroll(notches, -1);
                     paused_ = true;
                     message_ = L"已撤回一段，按空格继续";
                 } else {
@@ -175,6 +176,8 @@ bool Session::Drain() {
         case Command::Force:
             if (stitcher_->HasPending()) {
                 const auto result = stitcher_->AcceptPending();
+                if (result.status == StitchStatus::Appended || result.status == StitchStatus::Limit) RecordSegment(pending_notches_);
+                pending_notches_ = 0;
                 problem_ = Problem::None;
                 message_.clear();
                 paused_ = false;
@@ -390,6 +393,11 @@ void Session::ManualStep() {
     Handle(result, false, 0);
 }
 
+void Session::RecordSegment(int notches) {
+    step_notches_.push_back(notches);
+    while (step_notches_.size() > static_cast<size_t>(std::max(1, stitcher_->Options().history))) step_notches_.pop_front();
+}
+
 void Session::Handle(const StitchResult& result, bool automatic, int notches) {
     switch (result.status) {
     case StitchStatus::Appended:
@@ -397,9 +405,8 @@ void Session::Handle(const StitchResult& result, bool automatic, int notches) {
         problem_ = Problem::None;
         message_.clear();
         appended_once_ = true;
+        RecordSegment(automatic ? notches : 0);
         if (automatic && notches > 0) {
-            step_notches_.push_back(notches);
-            if (step_notches_.size() > 64) step_notches_.erase(step_notches_.begin());
             const double per = double(result.shift) / notches;
             pixels_per_notch_ = pixels_per_notch_ > 0 ? .5 * pixels_per_notch_ + .5 * per : per;
             const double band = std::max(1, stitcher_->BandRows());
@@ -428,6 +435,7 @@ void Session::Handle(const StitchResult& result, bool automatic, int notches) {
                              : L"滚得太快，和上一段接不上：请往回滚一点。";
         break;
     case StitchStatus::LowMatch:
+        pending_notches_ = automatic ? notches : 0;
         problem_ = Problem::LowMatch;
         message_ = L"这一段和上一段的重叠部分差异较大（相似度 " + Percent(result.match) + L"），可能有动画或内容还在加载。";
         break;
@@ -449,12 +457,18 @@ void Session::SyncThumb() {
         for (int x = 0; x < width; ++x) column_[x] = std::min(thumb_width_ - 1, static_cast<int>(int64_t(x) * thumb_width_ / width));
     }
     const int content = s.Height() - s.FooterRows();
-    if (content < thumb_source_rows_) {
+    const int target = static_cast<int>(std::floor(content * thumb_scale_));
+    if (s.ContentEpoch() != thumb_epoch_) {
+        // Rows already reduced were rewritten (late repaint of the first frame).
         thumb_.clear();
-        thumb_source_rows_ = 0;
+        thumb_epoch_ = s.ContentEpoch();
+    } else if (content < thumb_source_rows_) {
+        // Undo or the footer being split off: every complete thumbnail row
+        // above the new end still reduces unchanged content, so keep it
+        // instead of rescanning the whole image.
+        thumb_.resize(static_cast<size_t>(std::min(target, static_cast<int>(thumb_.size() / thumb_width_))) * thumb_width_);
     }
     const int built = static_cast<int>(thumb_.size() / thumb_width_);
-    const int target = static_cast<int>(std::floor(content * thumb_scale_));
     std::vector<uint32_t> sum(static_cast<size_t>(thumb_width_) * 3), count(static_cast<size_t>(thumb_width_));
     for (int oy = built; oy < target; ++oy) {
         const int y0 = static_cast<int>(oy / thumb_scale_);
@@ -545,13 +559,15 @@ void Session::FinishWork() {
     } catch (...) {}
     Publish();
     auto result = std::make_unique<CaptureResult>();
-    result->image = stitcher_->Compose(false);
     result->seams = stitcher_->Seams();
     result->header = stitcher_->HeaderRows();
     result->footer = stitcher_->FooterRows();
     result->scrollbar = stitcher_->ScrollbarColumns();
     result->region = region_;
-    stitcher_.reset(); // Release the working copy before the viewer allocates.
+    // The consuming compose frees content blocks as it copies them, so the
+    // peak is about one image instead of two.
+    result->image = std::move(*stitcher_).Compose(false);
+    stitcher_.reset();
     {
         std::lock_guard lock(mutex_);
         if (cancel_) return;

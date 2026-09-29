@@ -6,6 +6,7 @@
 #include "pin/zoom.h"
 #include "ui/pin_menu.h"
 #include "ui/themed_message.h"
+#include "ui/memory_target.h"
 #include "ocr/availability.h"
 #include <windowsx.h>
 #include <commdlg.h>
@@ -34,7 +35,7 @@ struct PinManager::Pin {
     int CanvasWidth()const{return paper.width+2*paper.shadow+2;}
     int CanvasHeight()const{return paper.height+2*paper.shadow+2;}
     Point WindowPoint(Point q)const{return {q.x*zoom+Inset()+offset.x,q.y*zoom+Inset()+offset.y};}
-    ComPtr<ID2D1Factory> factory;ComPtr<ID2D1DCRenderTarget> target;ComPtr<ID2D1Bitmap> bitmap;TextRenderer text_renderer;
+    ComPtr<ID2D1Factory> factory;ComPtr<ID2D1RenderTarget> target;ComPtr<ID2D1Bitmap> bitmap;int bitmap_uploads{};TextRenderer text_renderer;
     Point ImagePoint(LPARAM lp) const{return {(GET_X_LPARAM(lp)-Inset()-offset.x)/zoom,(GET_Y_LPARAM(lp)-Inset()-offset.y)/zoom};}
     SelectionHandles Handles()const{
         auto handles=TextHandles(text,selection,dpi/96/zoom);if(!handles.visible)return handles;
@@ -68,7 +69,11 @@ PinManager::~PinManager(){try{PreserveSession();}catch(...){}session_writer_.res
 void PinManager::Create(Frame image,Frame ocr_image,POINT position,std::optional<Frame> base,Document annotations,bool recognize,const PinSessionRecord* restored) {
     auto pin=std::make_unique<Pin>();pin->manager=this;pin->id=next_id_++;
     if(!restored){image.bounds={0,0,image.Width(),image.Height()};ocr_image.bounds=image.bounds;}
-    pin->image=restored?restored->image:std::make_shared<Frame>(std::move(image));pin->ocr_image=restored?restored->ocr_image:std::make_shared<Frame>(std::move(ocr_image));
+    // Identical (or empty) OCR pixels share the image instead of a second copy;
+    // for a long capture that is one full image less per pin.
+    const bool same_ocr=!restored&&(ocr_image.pixels.empty()||ocr_image.pixels==image.pixels);
+    pin->image=restored?restored->image:std::make_shared<Frame>(std::move(image));
+    pin->ocr_image=restored?restored->ocr_image:same_ocr?pin->image:std::make_shared<Frame>(std::move(ocr_image));
     if(base)base->bounds={0,0,base->Width(),base->Height()};
     pin->annotation_base=base?std::make_shared<Frame>(std::move(*base)):pin->image;pin->annotations=std::move(annotations);
     if(restored){pin->annotation_base=restored->base;pin->annotations.marks=restored->annotations;pin->marks=restored->decorations;pin->locked=restored->locked;}
@@ -153,16 +158,19 @@ void PinManager::RefreshAppearance(){
 }
 void PinManager::Paint(Pin& p) {
     if(!p.factory)CheckWin32(SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,p.factory.GetAddressOf())),"Create pin renderer");
-    if(!p.surface||p.surface_width!=p.CanvasWidth()||p.surface_height!=p.CanvasHeight()){
-        p.surface=std::make_unique<DibSurface>(p.CanvasWidth(),p.CanvasHeight());p.surface_width=p.CanvasWidth();p.surface_height=p.CanvasHeight();
+    if(!p.surface||!p.target||p.surface_width!=p.CanvasWidth()||p.surface_height!=p.CanvasHeight()){
+        // D2D draws in place into the layered window's DIB (no per-frame GDI round trip).
+        // Zoom resizes the canvas every frame; the image and shadow move to the new
+        // target as shared software bitmaps instead of being uploaded again.
+        auto surface=std::make_unique<DibSurface>(p.CanvasWidth(),p.CanvasHeight());
+        auto target=CreateMemoryRenderTarget(p.factory.Get(),surface->Pixels(),p.CanvasWidth(),p.CanvasHeight(),p.CanvasWidth());
+        ShareBitmap(target.Get(),p.bitmap);ShareBitmap(target.Get(),p.shadow_bitmap);p.target=std::move(target);
+        p.surface=std::move(surface);p.surface_width=p.CanvasWidth();p.surface_height=p.CanvasHeight();
     }
-    if(!p.target){
-        const auto props=D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_PREMULTIPLIED),96,96);
-        CheckWin32(SUCCEEDED(p.factory->CreateDCRenderTarget(&props,&p.target)),"Create alpha pin renderer");
+    if(!p.bitmap){
         const auto bmp=D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_IGNORE),96,96);
-        CheckWin32(SUCCEEDED(p.target->CreateBitmap(D2D1::SizeU(p.image->Width(),p.image->Height()),p.image->pixels.data(),p.image->Width()*4,bmp,&p.bitmap)),"Create pin image");
+        CheckWin32(SUCCEEDED(p.target->CreateBitmap(D2D1::SizeU(p.image->Width(),p.image->Height()),p.image->pixels.data(),p.image->Width()*4,bmp,&p.bitmap)),"Create pin image");++p.bitmap_uploads;
     }
-    RECT bounds{0,0,p.CanvasWidth(),p.CanvasHeight()};CheckWin32(SUCCEEDED(p.target->BindDC(p.surface->Dc(),&bounds)),"Bind pin surface");
     Draw(p,p.target.Get());RECT rect{};GetWindowRect(p.window,&rect);POINT origin=p.relocating?p.destination:POINT{rect.left,rect.top},source{};SIZE size{p.CanvasWidth(),p.CanvasHeight()};BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
     p.presenting=true;const BOOL ok=UpdateLayeredWindow(p.window,nullptr,&origin,&size,p.surface->Dc(),&source,0,&blend,ULW_ALPHA);p.presenting=false;p.relocating=false;
     CheckWin32(ok!=FALSE,"Present paper and shadow atomically");ValidateRect(p.window,nullptr);

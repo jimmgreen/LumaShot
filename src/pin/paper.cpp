@@ -41,7 +41,32 @@ void DrawPaper(ID2D1RenderTarget* target,const PaperLayout& p){
     const float k=.55228475f*r;
     sink->BeginFigure({r,edge},D2D1_FIGURE_BEGIN_FILLED);sink->AddLine({w-r,edge});sink->AddBezier(D2D1::BezierSegment({w-r+k,edge},{w-edge,r-k},{w-edge,r}));
     sink->AddLine({w-edge,h-f});sink->AddBezier(D2D1::BezierSegment({w-edge,h-f+f*.5523f},{w-f+f*.5523f,h-edge},{w-f,h-edge}));sink->AddLine({r,h-edge});sink->AddBezier(D2D1::BezierSegment({r-k,h-edge},{edge,h-r+k},{edge,h-r}));sink->AddLine({edge,r});sink->AddBezier(D2D1::BezierSegment({edge,r-k},{r-k,edge},{r,edge}));sink->EndFigure(D2D1_FIGURE_END_CLOSED);sink->Close();
-    ComPtr<ID2D1SolidColorBrush> brush;target->CreateSolidColorBrush(D2D1::ColorF(0xfcfcfb),&brush);target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(),paper.Get()),nullptr);target->FillRectangle(D2D1::RectF(0,0,w,h),brush.Get());
+    ComPtr<ID2D1SolidColorBrush> brush;target->CreateSolidColorBrush(D2D1::ColorF(0xfcfcfb),&brush);
+    // The masked layer defines the sheet's edge antialiasing, so every pixel near
+    // an edge (and the whole fold, whose curl must take that coverage once) still
+    // goes through it. Deep inside, the mask is exactly 1 and a plain fill gives
+    // identical pixels, so a software layer no longer spans a possibly 4K sheet.
+    // Regions are disjoint and meet on whole device pixels (aliased clips).
+    D2D1_MATRIX_3X2_F placed{};target->GetTransform(&placed);
+    const auto ax=[&](float x){return std::floor(x+placed._31)-placed._31;};
+    const auto ay=[&](float y){return std::floor(y+placed._32)-placed._32;};
+    const float band=r+2,margin=8*std::max(1.f,r/6);
+    const float xi0=ax(band)+1,yi0=ay(band)+1,xi1=ax(w-band),yi1=ay(h-band),xf=std::min(xi1,ax(w-f-margin)),yf=std::min(yi1,ay(h-f-margin));
+    const bool split=placed._11==1&&placed._22==1&&placed._12==0&&placed._21==0&&xi0<xf&&yi0<yf;
+    const auto masked=[&](D2D1_RECT_F region){
+        target->PushAxisAlignedClip(region,D2D1_ANTIALIAS_MODE_ALIASED);
+        target->PushLayer(D2D1::LayerParameters(region,paper.Get()),nullptr);target->FillRectangle(D2D1::RectF(0,0,w,h),brush.Get());
+    };
+    const auto fold_box=D2D1::RectF(xf,yf,w+2,h+2);
+    if(split){
+        for(const auto inner:{D2D1::RectF(xi0,yi0,xi1,yf),D2D1::RectF(xi0,yf,xf,yi1)}){
+            target->PushAxisAlignedClip(inner,D2D1_ANTIALIAS_MODE_ALIASED);target->FillRectangle(inner,brush.Get());target->PopAxisAlignedClip();
+        }
+        for(const auto edge_band:{D2D1::RectF(-2,-2,w+2,yi0),D2D1::RectF(-2,yi0,xi0,h+2),D2D1::RectF(xi1,yi0,w+2,yf),D2D1::RectF(xi0,yi1,xf,h+2)}){
+            masked(edge_band);target->PopLayer();target->PopAxisAlignedClip();
+        }
+        masked(fold_box);
+    }else{target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(),paper.Get()),nullptr);target->FillRectangle(D2D1::RectF(0,0,w,h),brush.Get());}
     ComPtr<ID2D1PathGeometry> curl;factory->CreatePathGeometry(&curl);sink.Reset();curl->Open(&sink);
     // A continuous S-shaped lip joins the flat bottom and right edges. The
     // lens between this curve and the outer arc is the exposed paper back.
@@ -61,6 +86,7 @@ void DrawPaper(ID2D1RenderTarget* target,const PaperLayout& p){
     ComPtr<ID2D1GradientStopCollection> collection;target->CreateGradientStopCollection(stops,5,&collection);ComPtr<ID2D1LinearGradientBrush> gradient;target->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({w-f*.62f,h-f*.58f},{w-f*.22f,h-f*.26f}),collection.Get(),&gradient);
     target->FillGeometry(curl.Get(),gradient.Get());brush->SetColor(D2D1::ColorF(0xffffff,.9f));target->DrawGeometry(crease.Get(),brush.Get(),.7f*scale);
     target->PopLayer();
+    if(split)target->PopAxisAlignedClip();
 }
 static float Distance(const PaperLayout& p,float x,float y){
     const float r=float(p.radius),qx=std::abs(x-float(p.width)/2)-(float(p.width)/2-r),qy=std::abs(y-float(p.height)/2)-(float(p.height)/2-r);

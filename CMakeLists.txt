@@ -22,7 +22,7 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
     WINVER=0x0A00 _WIN32_WINNT=0x0A00)
 add_library(lumashot_recording STATIC src/recording/core.cpp src/recording/encoder.cpp src/recording/gif.cpp src/recording/gif_frames.cpp src/recording/gif_export.cpp src/recording/gif_optimizer.cpp src/recording/mp4_export.cpp src/recording/preview.cpp)
 target_include_directories(lumashot_recording PUBLIC src)
-target_link_libraries(lumashot_recording PUBLIC d3d11 dxgi mfplat mfreadwrite mfuuid evr windowsapp windowscodecs ole32 propsys bcrypt)
+target_link_libraries(lumashot_recording PUBLIC d3d11 dxgi mfplat mfreadwrite mfuuid evr windowsapp windowscodecs ole32 propsys bcrypt avrt)
 add_executable(lumashot_recording_worker WIN32 src/recording/worker.cpp src/recording/panel.cpp src/ui/acrylic.cpp src/ui/controls.cpp src/ui/dropdown_window.cpp src/ui/text_renderer.cpp)
 target_link_libraries(lumashot_recording_worker PRIVATE lumashot_recording lumashot_capture lumatext_binary d2d1 dwrite mfplay comctl32 comdlg32 shell32)
 add_library(lumashot_capture STATIC src/capture/frame.cpp src/capture/cursor.cpp
@@ -232,6 +232,7 @@ add_executable(lumashot_magnifier_test tests/magnifier_test.cpp)
 target_link_libraries(lumashot_magnifier_test PRIVATE lumashot_ui)
 add_test(NAME magnifier_pixels COMMAND lumashot_magnifier_test)
 target_sources(lumashot_ui PRIVATE src/ui/pin_menu.cpp)
+target_sources(lumashot_ui PRIVATE src/ui/memory_target.cpp)
 add_executable(lumashot_pin_menu_test tests/pin_menu_test.cpp)
 target_link_libraries(lumashot_pin_menu_test PRIVATE lumashot_ui)
 add_test(NAME pin_menu COMMAND lumashot_pin_menu_test)
@@ -661,6 +662,11 @@ target_link_libraries(lumashot_long_annotate_app_test PRIVATE lumashot_pin comct
 target_link_options(lumashot_long_annotate_app_test PRIVATE /MANIFEST:NO)
 add_test(NAME long_capture_annotate_editor COMMAND lumashot_long_annotate_app_test)
 set_tests_properties(long_capture_annotate_editor PROPERTIES TIMEOUT 60)
+# Memory/speed of the whole long capture pipeline on a synthetic page (prints a table).
+add_executable(lumashot_long_memory_bench tests/long_memory_bench.cpp)
+target_link_libraries(lumashot_long_memory_bench PRIVATE lumashot_longshot psapi)
+add_test(NAME long_capture_memory COMMAND lumashot_long_memory_bench)
+set_tests_properties(long_capture_memory PROPERTIES TIMEOUT 120)
 # Every executable that compiles the application owns a LongCaptureManager.
 get_property(lumashot_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(lumashot_target IN LISTS lumashot_all_targets)

@@ -42,7 +42,9 @@ static bool HasArea(Box b) {return b.right-b.left>=1 && b.bottom-b.top>=1;}
 // that thread's input queue for the single activation call so the overlay can
 // take focus without closing the menu it is about to capture.
 static void ActivateOverlay(HWND window) {
-    if(SetForegroundWindow(window)&&GetForegroundWindow()==window){SetFocus(window);return;}
+    const double started=Diagnostics::Now();
+    if(SetForegroundWindow(window)&&GetForegroundWindow()==window){SetFocus(window);Diagnostics::Get().Add("activate_direct",started,1);return;}
+    Diagnostics::Get().Add("activate_direct",started,0);
     const HWND foreground=GetForegroundWindow();const DWORD current=GetCurrentThreadId();
     const DWORD owner=foreground?GetWindowThreadProcessId(foreground,nullptr):0;
     const bool attached=owner&&owner!=current&&AttachThreadInput(current,owner,TRUE);
@@ -129,7 +131,7 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
             if(!demo_&&!diagnostic_session_){settings_writer_.Request(preferences_);settings_writer_.Flush();}
         };
         host.pin=[this](Frame image,Frame ocr,POINT position,bool recognize){
-            if(ocr.pixels.empty())ocr=image;
+            // An empty OCR image means "same pixels"; the pin shares them.
             pins_->Create(std::move(image),std::move(ocr),position,std::nullopt,{},recognize&&ocr_available_);
         };
         host.annotate=[this](std::shared_ptr<const Frame> image,Document marks,RECT bounds,longshot::Host::AnnotateDone done){
@@ -472,12 +474,16 @@ void Application::ShowViews() try {
     GetCursorPos(&mouse);state_.pointer={float(mouse.x),float(mouse.y)};
     UpdateToolbar(mouse);if(!pin_edit_id_)state_.selection=WindowAt(mouse);
     UpdatePinEditRegion();
+    // Same rule for the magnifier (closed after every capture): its window and first
+    // layered frame are created hidden, so the first visible hover only moves it.
+    if(!state_.selected&&!state_.dragging&&!state_.busy){const POINT pointer=NativePoint(state_.pointer);
+        for(const auto& view:views_)if(PtInRect(&view->bounds,pointer)){magnifier_.Prepare(view->window,*frame_,view->bounds,pointer);break;}}
     HWND focus=views_.front()->window;
     for(auto& view:views_) {
         ShowWindow(view->window,SW_SHOWNOACTIVATE);UpdateWindow(view->window);
         if(PtInRect(&view->bounds,mouse))focus=view->window;
     }
-    ActivateOverlay(focus);UpdateMagnifier();
+    {TraceScope activate("activate_overlay");ActivateOverlay(focus);}UpdateMagnifier();
     if(capture_started_)Diagnostics::Get().Add("capture_ready",capture_started_);
 } catch(...) {
     // A failed hidden preparation must not leave an invisible active session

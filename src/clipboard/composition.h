@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <stdexcept>
 #include <memory>
+#include <future>
 
 namespace lumashot {
 // Each HWND retains its own visual and swap chain. Windows on the same UI
@@ -26,12 +27,19 @@ class ClipboardComposition {
         }
         ~Graphics(){Trim();}
     };
+    static std::weak_ptr<Graphics>& Cached(){static thread_local std::weak_ptr<Graphics> cached;return cached;}
+    // A device being created on a worker for this UI thread (see Prewarm).
+    static std::future<std::shared_ptr<Graphics>>& Pending(){static thread_local std::future<std::shared_ptr<Graphics>> pending;return pending;}
+    static std::shared_ptr<Graphics> TakePending(){
+        auto& pending=Pending();if(!pending.valid())return {};
+        try{return pending.get();}catch(...){return {};}
+    }
     static std::shared_ptr<Graphics> Acquire(){
-        static thread_local std::weak_ptr<Graphics> cached;
+        auto& cached=Cached();
         auto graphics=cached.lock();
-        if(!graphics||FAILED(graphics->device->GetDeviceRemovedReason())){
-            graphics=std::make_shared<Graphics>();cached=graphics;
-        }
+        if(!graphics)graphics=TakePending();
+        if(!graphics||FAILED(graphics->device->GetDeviceRemovedReason()))graphics=std::make_shared<Graphics>();
+        cached=graphics;
         return graphics;
     }
     std::shared_ptr<Graphics> graphics_;
@@ -50,6 +58,17 @@ class ClipboardComposition {
         graphics_.reset();width_=height_=0;
     }
 public:
+    // D3D11 device creation costs ~75 ms and the device ~28 MB, so idle UI keeps
+    // none. Prewarm starts creating it on a worker (devices are free-threaded; the
+    // immediate context is only used by this UI thread afterwards) so the next
+    // Present overlaps that cost with CPU rendering or the user's hover-to-click.
+    static void Prewarm(){
+        if(Cached().lock()||Pending().valid())return;
+        try{Pending()=std::async(std::launch::async,[]{return std::make_shared<Graphics>();});}catch(...){}
+    }
+    // Drops an unused prewarmed device (waits for a creation still in flight).
+    static void DropPrewarm(){TakePending();}
+    static bool Prewarmed(){return Pending().valid();}
     ClipboardComposition()=default;
     ClipboardComposition(const ClipboardComposition&)=delete;
     ClipboardComposition& operator=(const ClipboardComposition&)=delete;

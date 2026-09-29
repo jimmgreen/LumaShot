@@ -2,6 +2,7 @@
 #include "export/png.h"
 #include <shellapi.h>
 #include <objbase.h>
+#include <algorithm>
 #include <iostream>
 #include <functional>
 // Clipboard listeners can briefly hold the shared system clipboard between assertions.
@@ -30,6 +31,19 @@ int main(){
  RetryClipboard([&]{PublishClipboardImage(owner,*staged);});expect(!staged->image,"publication transfers ownership without recopying pixels");
  bool orientation=false;if(WaitClipboard(owner)){auto handle=GetClipboardData(CF_DIB);const auto* header=static_cast<const BITMAPINFOHEADER*>(GlobalLock(handle));if(header){const auto* pixels=reinterpret_cast<const uint32_t*>(header+1);orientation=header->biWidth==2&&header->biHeight==2&&pixels[0]==0xff778899&&pixels[3]==0xff445566;GlobalUnlock(handle);}CloseClipboard();}expect(orientation,"prepared clipboard retains bottom-up orientation after source release");
  bool invalid=false;try{PrepareClipboardImage(source);}catch(const std::invalid_argument&){invalid=true;}expect(invalid,"malformed image rejected before clipboard mutation"); bool rejected=false;try{PrepareClipboardFile(frame,99);}catch(const std::invalid_argument&){rejected=true;}expect(rejected,"invalid format rejected");
+ // A crop encoded through a view (no intermediate copy) equals the copied crop.
+ auto big=MakeFrame({0,0,300,700});for(size_t i=0;i<big.pixels.size();++i)big.pixels[i]=0xff000000u|((static_cast<uint32_t>(i)*2654435761u)>>8);
+ const RECT cut_rect{17,5,263,690};const Frame cut=Crop(big,cut_rect);
+ for(int format=0;format<3;++format){
+  const auto path=std::filesystem::temp_directory_path()/(std::wstring(L"LumaShot-view-test")+(format==1?L".jpg":format==2?L".bmp":L".png"));
+  SaveImageFile(PixelsOf(big,cut_rect),path,format);const auto decoded=ReadPng(path);std::filesystem::remove(path);
+  expect(decoded.Width()==246&&decoded.Height()==685,"view crop encodes at crop dimensions");
+  if(format!=1)expect(decoded.pixels==cut.pixels,"lossless view crop equals the copied crop");
+ }
+ {auto staged_view=PrepareClipboardImage(PixelsOf(big,cut_rect));bool same=false;
+  if(const auto* header=static_cast<const BITMAPINFOHEADER*>(GlobalLock(staged_view->image))){const auto* pixels=reinterpret_cast<const uint32_t*>(header+1);same=header->biWidth==246&&header->biHeight==685;
+   for(int y=0;y<685&&same;++y)same=std::equal(pixels+static_cast<size_t>(684-y)*246,pixels+static_cast<size_t>(685-y)*246,cut.pixels.data()+static_cast<size_t>(y)*246);GlobalUnlock(staged_view->image);}
+  expect(same,"clipboard DIB from a view crop equals the copied crop");}
  }catch(const std::exception& e){std::cout<<e.what()<<std::endl;++failures;}
  if(WaitClipboard(owner)){EmptyClipboard();CloseClipboard();}DestroyWindow(owner);CoUninitialize();return failures?1:0;
 }

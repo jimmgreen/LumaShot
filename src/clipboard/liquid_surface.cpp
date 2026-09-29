@@ -1,9 +1,11 @@
 #include "clipboard/liquid_surface.h"
 #include "clipboard/liquid_neck.h"
+#include "ui/memory_target.h"
 #include <d2d1helper.h>
 #include <wrl/client.h>
 #include <stdexcept>
 #include <vector>
+#include <utility>
 #include <cstring>
 
 namespace lumashot::clipboard {
@@ -64,7 +66,7 @@ ComPtr<ID2D1Geometry> Shape(ID2D1Factory* factory,const LiquidFrame& frame) {
 }
 struct LiquidSurface::Impl {
     ComPtr<ID2D1Factory> factory;
-    ComPtr<ID2D1DCRenderTarget> target;
+    ComPtr<ID2D1RenderTarget> target;
     ComPtr<ID2D1SolidColorBrush> brush;
     ComPtr<ID2D1Layer> layer;
     ComPtr<ID2D1StrokeStyle> stroke;
@@ -72,12 +74,20 @@ struct LiquidSurface::Impl {
     ComPtr<ID2D1Geometry> geometry;
     std::unique_ptr<DibSurface> surface;
     int width{},height{};
+    uint32_t placeholder{};
+    // Animation frames draw in place into the DIB presented by composition. A
+    // memory target is fixed to its DIB, so a resized viewport re-homes the
+    // cached text bitmaps (no re-upload) onto a new target. Before the first
+    // frame, bitmaps are created on a one-pixel placeholder target.
+    void Retarget(uint32_t* pixels,int w,int h){
+        auto next=CreateMemoryRenderTarget(factory.Get(),pixels,w,h,w);
+        if(!ShareBitmap(next.Get(),compact)||!ShareBitmap(next.Get(),expanded))throw std::runtime_error("Liquid bitmaps cannot move to the resized surface");
+        brush.Reset();layer.Reset();target=std::move(next);
+        Check(target->CreateSolidColorBrush(Color(0),&brush));Check(target->CreateLayer(nullptr,&layer));
+    }
     Impl(){
         Check(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,factory.GetAddressOf()));
-        const auto props=D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_PREMULTIPLIED));
-        Check(factory->CreateDCRenderTarget(&props,&target));
-        Check(target->CreateSolidColorBrush(Color(0),&brush));Check(target->CreateLayer(nullptr,&layer));
+        Retarget(&placeholder,1,1);
         auto style=D2D1::StrokeStyleProperties();style.lineJoin=D2D1_LINE_JOIN_ROUND;
         // Dock flares meet the work-area boundary tangentially. Miter joins
         // amplify that cusp into a long spike; round joins keep the halo bounded.
@@ -91,8 +101,11 @@ struct LiquidSurface::Impl {
     void Render(const LiquidFrame& frame){
         const int w=frame.viewport.right-frame.viewport.left,h=frame.viewport.bottom-frame.viewport.top;
         if(w<=0||h<=0||static_cast<long long>(w)*h>3600000)throw std::runtime_error("Liquid frame exceeds its bounded viewport");
-        if(!surface||width!=w||height!=h){surface=std::make_unique<DibSurface>(w,h);width=w;height=h;}
-        const RECT client{0,0,w,h};Check(target->BindDC(surface->Dc(),&client));target->SetDpi(96,96);
+        if(!surface||width!=w||height!=h){
+            auto next=std::make_unique<DibSurface>(w,h);Retarget(next->Pixels(),w,h);
+            surface=std::move(next);width=w;height=h;
+        }
+        target->SetDpi(96,96);
         geometry=Shape(factory.Get(),frame);
         target->BeginDraw();target->SetTransform(D2D1::Matrix3x2F::Identity());target->Clear(Color(0,0));
         // Small analytic halo, not a sampled/blurred copy of the desktop.

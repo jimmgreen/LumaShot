@@ -45,7 +45,8 @@ std::filesystem::path CurrentClipboardFile(HWND owner){
     }
     CloseClipboard();return result;
 }
-std::shared_ptr<ClipboardFile> PrepareClipboardFile(const Frame& frame,int format){
+std::shared_ptr<ClipboardFile> PrepareClipboardFile(const Frame& frame,int format){return PrepareClipboardFile(PixelsOf(frame),format);}
+std::shared_ptr<ClipboardFile> PrepareClipboardFile(const PixelView& frame,int format){
     if(format<0||format>2)throw std::invalid_argument("Invalid clipboard file format");
     const auto directory=std::filesystem::temp_directory_path()/L"LumaShot-Clipboard";
     std::filesystem::create_directories(directory);
@@ -55,7 +56,12 @@ std::shared_ptr<ClipboardFile> PrepareClipboardFile(const Frame& frame,int forma
     SaveClipboardImageFile(frame,file->path,format);return file;
 }
 std::unique_ptr<ClipboardImage> PrepareClipboardImage(const Frame& frame,const std::shared_ptr<ClipboardFile>& file) {
-    if(frame.Width()<=0||frame.Height()<=0||frame.pixels.size()!=static_cast<size_t>(frame.Width())*frame.Height()||frame.pixels.size()>(MAXDWORD-sizeof(BITMAPINFOHEADER))/4)
+    if(frame.pixels.size()!=static_cast<size_t>(std::max(frame.Width(),0))*static_cast<size_t>(std::max(frame.Height(),0)))throw std::invalid_argument("Invalid clipboard image dimensions");
+    return PrepareClipboardImage(PixelsOf(frame),file);
+}
+std::unique_ptr<ClipboardImage> PrepareClipboardImage(const PixelView& frame,const std::shared_ptr<ClipboardFile>& file) {
+    const size_t count=static_cast<size_t>(std::max(frame.width,0))*static_cast<size_t>(std::max(frame.height,0));
+    if(!frame.pixels||frame.width<=0||frame.height<=0||frame.stride<static_cast<size_t>(frame.width)||count>(MAXDWORD-sizeof(BITMAPINFOHEADER))/4)
         throw std::invalid_argument("Invalid clipboard image dimensions");
     auto result=std::make_unique<ClipboardImage>();result->file=file;
     if(file){
@@ -63,17 +69,16 @@ std::unique_ptr<ClipboardImage> PrepareClipboardImage(const Frame& frame,const s
         auto* data=static_cast<DROPFILES*>(GlobalLock(result->drop));CheckWin32(data!=nullptr,"Lock clipboard file");data->pFiles=sizeof(DROPFILES);data->fWide=TRUE;
         std::copy(path.begin(),path.end(),reinterpret_cast<wchar_t*>(data+1));GlobalUnlock(result->drop);
     }
-    const size_t bytes=sizeof(BITMAPINFOHEADER)+frame.pixels.size()*4;
+    const size_t bytes=sizeof(BITMAPINFOHEADER)+count*4;
     result->image=GlobalAlloc(GMEM_MOVEABLE,bytes);
     CheckWin32(result->image!=nullptr,"Allocate clipboard image");
     auto* header=static_cast<BITMAPINFOHEADER*>(GlobalLock(result->image));
     CheckWin32(header!=nullptr,"Lock clipboard image");
-    *header={};header->biSize=sizeof(*header);header->biWidth=frame.Width();header->biHeight=frame.Height();
+    *header={};header->biSize=sizeof(*header);header->biWidth=frame.width;header->biHeight=frame.height;
     header->biPlanes=1;header->biBitCount=32;header->biCompression=BI_RGB;
-    header->biSizeImage=static_cast<DWORD>(frame.pixels.size()*4);
+    header->biSizeImage=static_cast<DWORD>(count*4);
     auto* pixels=reinterpret_cast<uint32_t*>(header+1);
-    for(int y=0;y<frame.Height();++y)std::copy_n(frame.pixels.data()+static_cast<size_t>(frame.Height()-1-y)*frame.Width(),
-        frame.Width(),pixels+static_cast<size_t>(y)*frame.Width());
+    for(int y=0;y<frame.height;++y)std::copy_n(frame.Row(frame.height-1-y),frame.width,pixels+static_cast<size_t>(y)*frame.width);
     GlobalUnlock(result->image);return result;
 }
 void PublishClipboardImage(HWND owner,ClipboardImage& prepared){

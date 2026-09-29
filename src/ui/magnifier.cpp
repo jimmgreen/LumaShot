@@ -25,8 +25,17 @@ void MagnifierPixels(const Frame& frame,RECT monitor,POINT pointer,std::span<uin
         output[static_cast<size_t>(y)*kMagnifierSize+x]=color;
     }
 }
+void Magnifier::Prepare(HWND owner,const Frame& frame,RECT monitor,POINT pointer) {
+    TraceScope trace("magnifier_prepare");
+    // Only a head start: on failure Show() creates everything again when needed.
+    try{Update(owner,frame,monitor,pointer);}catch(...){Close();}
+}
 void Magnifier::Show(HWND owner,const Frame& frame,RECT monitor,POINT pointer) {
     TraceScope trace("magnifier_update");
+    Update(owner,frame,monitor,pointer);
+    if(!IsWindowVisible(window_))ShowWindow(window_,SW_SHOWNOACTIVATE);
+}
+void Magnifier::Update(HWND owner,const Frame& frame,RECT monitor,POINT pointer) {
     if(!surface_)surface_=std::make_unique<DibSurface>(kMagnifierSize,kMagnifierSize);
     if(!IsWindow(window_)) {
         window_=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
@@ -37,7 +46,6 @@ void Magnifier::Show(HWND owner,const Frame& frame,RECT monitor,POINT pointer) {
     const RECT bounds=MagnifierBounds(monitor,pointer);POINT position{bounds.left,bounds.top},source{};
     SIZE size{kMagnifierSize,kMagnifierSize};BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
     CheckWin32(UpdateLayeredWindow(window_,nullptr,&position,&size,surface_->Dc(),&source,0,&blend,ULW_ALPHA)!=FALSE,"Update magnifier");
-    if(!IsWindowVisible(window_))ShowWindow(window_,SW_SHOWNOACTIVATE);
 }
 void Magnifier::Hide(){if(IsWindow(window_)&&IsWindowVisible(window_))ShowWindow(window_,SW_HIDE);}
 void Magnifier::Close(){if(IsWindow(window_))DestroyWindow(window_);window_=nullptr;surface_.reset();}

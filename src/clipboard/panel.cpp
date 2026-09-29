@@ -14,6 +14,7 @@
 #include "clipboard/preview_cache.h"
 #include "ui/acrylic.h"
 #include "ui/brand_icon.h"
+#include "ui/memory_target.h"
 #include "ui/text_renderer.h"
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -25,6 +26,7 @@
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <imm.h>
+#include <cstring>
 #include <map>
 #include <set>
 #include <cmath>
@@ -87,7 +89,7 @@ struct ClipboardPanel::Impl {
     POINT anchor{},drag_start{};RECT drag_rect{};bool placed{},drag_pending{},dragged{};
     float scale{1};std::wstring query,status;int hover{-1};
     TextRenderer text_renderer;uint64_t text_glyphs{};
-    ComPtr<ID2D1Factory> factory;ComPtr<IDWriteFactory> writer;ComPtr<ID2D1DCRenderTarget> target;ComPtr<ID2D1SolidColorBrush> brush;
+    ComPtr<ID2D1Factory> factory;ComPtr<IDWriteFactory> writer;ComPtr<ID2D1RenderTarget> target;ComPtr<ID2D1SolidColorBrush> brush;
     BrandIcon app_icon;
     std::map<uint64_t,ComPtr<ID2D1Bitmap>> images;
     std::set<uint64_t> thumbnail_pending,thumbnail_failed;
@@ -97,6 +99,10 @@ struct ClipboardPanel::Impl {
     struct Hit {D2D1_RECT_F rect;int action;uint64_t id;};std::vector<Hit> hits;std::optional<Hit> paste_click;
     std::unique_ptr<DibSurface> surface;int width{},height{};uint64_t search_text_glyphs{};
     std::unique_ptr<ClipboardComposition> composition,parked_composition;
+    HWND idle_strip{};bool idle_layered{};
+    // After the 10 s renderer trim, a folded strip left alone this long hands off to the
+    // layered copy and releases the ~28 MB D3D11 device (recreated in ~75 ms on use).
+    static constexpr UINT IdleStripDelayMs=60000;
     bool switching_window{},reveal_window{};
     bool opening{};
     clipboard::LiquidTween opening_tween;
@@ -179,6 +185,48 @@ struct ClipboardPanel::Impl {
         const bool supported=SUCCEEDED(DwmSetWindowAttribute(window,38,&backdrop,sizeof(backdrop)));
         if(!enabled_shape)acrylic=supported;
     }
+    // Idle folded strip: the same premultiplied pixels shown by a click-through
+    // layered window directly below folded_window, so the D3D11/DComp device can be
+    // released while the strip just sits at the screen edge. folded_window stays
+    // visible and keeps its input region; without a composition it draws nothing.
+    bool ShowIdleStrip(){
+        if(!liquid_surface||!folded_window||window!=folded_window||!IsWindowVisible(folded_window))return false;
+        RECT bounds{};GetWindowRect(folded_window,&bounds);
+        const int w=liquid_surface->Width(),h=liquid_surface->Height();
+        if(w<=0||h<=0||bounds.right-bounds.left!=w||bounds.bottom-bounds.top!=h||!liquid_surface->Pixels())return false;
+        if(!idle_strip){
+            WNDCLASSEXW wc{sizeof(wc)};wc.lpfnWndProc=DefWindowProcW;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"LumaShotClipboardIdleStrip";
+            if(!RegisterClassExW(&wc)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)return false;
+            idle_strip=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,wc.lpszClassName,L"LumaShot 剪贴板侧边条",WS_POPUP,
+                bounds.left,bounds.top,w,h,owner,nullptr,wc.hInstance,nullptr);
+            if(!idle_strip)return false;
+            const BOOL yes=TRUE;DwmSetWindowAttribute(idle_strip,DWMWA_TRANSITIONS_FORCEDISABLED,&yes,sizeof(yes));
+        }
+        BITMAPINFO info{};info.bmiHeader={sizeof(BITMAPINFOHEADER),w,-h,1,32,BI_RGB};
+        const HDC screen=GetDC(nullptr);if(!screen)return false;
+        const HDC memory=CreateCompatibleDC(screen);void* bits=nullptr;
+        const HBITMAP bitmap=memory?CreateDIBSection(memory,&info,DIB_RGB_COLORS,&bits,nullptr,0):nullptr;
+        BOOL shown=FALSE;
+        if(bitmap&&bits){
+            std::memcpy(bits,liquid_surface->Pixels(),static_cast<size_t>(w)*static_cast<size_t>(h)*4);
+            const auto old=SelectObject(memory,bitmap);
+            POINT destination{bounds.left,bounds.top},source{};SIZE size{w,h};BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
+            shown=UpdateLayeredWindow(idle_strip,screen,&destination,&size,memory,&source,0,&blend,ULW_ALPHA);
+            SelectObject(memory,old);
+        }
+        if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);ReleaseDC(nullptr,screen);
+        if(!shown)return false;
+        SetWindowPos(idle_strip,folded_window,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);
+        return true;
+    }
+    void HideIdleStrip(){idle_layered=false;if(idle_strip&&IsWindowVisible(idle_strip))ShowWindow(idle_strip,SW_HIDE);}
+    // Called by the folded idle timer. The layered copy is on screen before the
+    // composition detaches, so the strip never blinks.
+    void EnterIdleStrip(){
+        if(idle_layered||expanded||opening||liquid_drag_active||liquid_failed||!composition)return;
+        if(!ShowIdleStrip()){if(idle_strip)ShowWindow(idle_strip,SW_HIDE);return;}
+        DwmFlush();parked_composition.reset();composition.reset();idle_layered=true;
+    }
     void PaintLiquid(const clipboard::LiquidFrame& frame){
         liquid_surface->Render(frame);
         liquid_placing=true;RECT current{};GetWindowRect(window,&current);
@@ -187,9 +235,16 @@ struct ClipboardPanel::Impl {
         liquid_placing=false;
         if(liquid_backdrop){const HRGN region=liquid_surface->CreateInputRegion();CheckWin32(region!=nullptr,"Liquid input mask");
             if(!SetWindowRgn(window,region,FALSE)){DeleteObject(region);CheckWin32(false,"Liquid input mask");}}
-        if(!composition)composition=std::make_unique<ClipboardComposition>();
-        composition->Transition(0,1);
-        composition->Present(window,static_cast<UINT>(liquid_surface->Width()),static_cast<UINT>(liquid_surface->Height()),liquid_surface->Pixels());
+        // An idle folded strip stays on the layered copy; anything else presents through composition.
+        const bool layered=idle_layered&&!expanded&&!liquid_drag_active&&ShowIdleStrip();
+        if(!layered){
+            const bool handoff=idle_strip&&IsWindowVisible(idle_strip);
+            if(!composition)composition=std::make_unique<ClipboardComposition>();
+            composition->Transition(0,1);
+            composition->Present(window,static_cast<UINT>(liquid_surface->Width()),static_cast<UINT>(liquid_surface->Height()),liquid_surface->Pixels());
+            if(handoff)DwmFlush();
+            HideIdleStrip();
+        }
         if(!expanded){compact_body=clipboard::LiquidPixels(frame.pose.bounds);compact_viewport=frame.viewport;compact_positioned=true;}
     }
     void PresentFolded(){
@@ -200,6 +255,8 @@ struct ClipboardPanel::Impl {
         clipboard::LiquidFrame frame;frame.pose={clipboard::ConstrainLiquidBounds(clipboard::LiquidRect(body),work),0};
         frame.viewport=clipboard::LiquidViewport(frame.pose.bounds,work,scale);frame.work=work;frame.scale=scale;frame.dark=dark;
         LiquidBackdrop(true);PaintLiquid(frame);
+        // The folded strip repaints rarely; drop the software D2D factory caches once it settles.
+        SetTimer(EventWindow(),4,10000,nullptr);
     }
     void StopLiquidDrag(bool finish){
         if(window)KillTimer(EventWindow(),9);liquid_drag_timer=false;
@@ -220,7 +277,7 @@ struct ClipboardPanel::Impl {
         drag_pending=scroll_drag=false;
         RECT bounds{};GetWindowRect(window,&bounds);
         reveal_window=IsWindowVisible(window)!=FALSE;
-        ShowWindow(window,SW_HIDE);
+        ShowWindow(window,SW_HIDE);HideIdleStrip();
         std::swap(composition,parked_composition);
         window=next;liquid_backdrop=window==folded_window;
         compact_positioned=false;
@@ -326,9 +383,10 @@ struct ClipboardPanel::Impl {
         if(disk&&!test_mode){disk->WaitIdle();DrainStore();disk->Commit(history.entries,history.groups);disk->WaitIdle();}
         enabled=expanded=false;menu_open=menu_confirm=false;drag_pending=dragged=scroll_drag=false;
         ++copy_token;++image_token;++search_token;copy_pending=false;
-        if(window){RemoveClipboardFormatListener(EventWindow());UnregisterShortcut();KillTimer(EventWindow(),1);KillTimer(EventWindow(),2);KillTimer(EventWindow(),3);KillTimer(EventWindow(),4);KillTimer(EventWindow(),6);if(GetCapture()==window)ReleaseCapture();}
+        if(window){RemoveClipboardFormatListener(EventWindow());UnregisterShortcut();KillTimer(EventWindow(),1);KillTimer(EventWindow(),2);KillTimer(EventWindow(),3);KillTimer(EventWindow(),4);KillTimer(EventWindow(),6);KillTimer(EventWindow(),11);if(GetCapture()==window)ReleaseCapture();}
         ClosePreview();listening=hotkey=paste_inflight=false;disk.reset();file_icons.reset();
         composition.reset();parked_composition.reset();
+        idle_layered=false;if(idle_strip){DestroyWindow(idle_strip);idle_strip=nullptr;}ClipboardComposition::DropPrewarm();
         switching_window=true;
         if(folded_window)DestroyWindow(folded_window);
         if(native_window)DestroyWindow(native_window);
@@ -343,6 +401,9 @@ struct ClipboardPanel::Impl {
         copy_plain=copy_keyboard=paste_keyboard=paste_activated=paste_returning=copy_quick=paste_quick=false;paste_return_at=0;
         suppress_search_space=false;search_complete=false;tab=scroll=retry=paste_wait=0;hover=-1;width=height=0;
         // Keep only small user placement/policy fields; recreate resources on demand.
+        // The history and decoded images just freed leave tens of MB of free pages that
+        // the process heap would otherwise keep committed until later churn reuses them.
+        HeapCompact(GetProcessHeap(),0);
     }
     void SelectVisible(){scroll=std::clamp(scroll,0,std::max(0,static_cast<int>(visible.size())-PageRows()));if(std::find(visible.begin(),visible.end(),selected)==visible.end())selected=visible.empty()?0:visible.front();if(preview.IsOpen())ShowPreview();else PrefetchPreview();Invalidate();}
     void Filter(bool cancel_copy=true){
@@ -494,6 +555,8 @@ struct ClipboardPanel::Impl {
         Invalidate();
     }
     void Place(bool animate=false){
+        // From the idle strip the D3D11 device is gone; create it on a worker while this thread renders.
+        if(expanded)ClipboardComposition::Prewarm();
         StopOpening(false);
         const RECT from=VisualBodyBounds();
         animate=animate&&expanded&&window==folded_window&&IsWindowVisible(window)&&MotionEnabled()&&!liquid_failed;
@@ -552,7 +615,7 @@ struct ClipboardPanel::Impl {
     }
     void EndDrag(){const bool click=drag_pending&&!dragged&&!expanded;const bool save=drag_pending&&dragged;drag_pending=false;ReleaseCapture();ReleaseLiquidDrag();if(save&&!SaveLayout()){status=L"位置保存失败，下次启动可能无法恢复";Invalidate();}if(click)Show();}
     void RememberTarget(HWND candidate){
-        if(!IsWindow(candidate)||candidate==window||candidate==native_window||candidate==folded_window||candidate==owner||(quick&&candidate==quick->Window())||IsChild(native_window?native_window:window,candidate)||preview.OwnsWindow(candidate)||candidate==GetDesktopWindow()||candidate==GetShellWindow())return;
+        if(!IsWindow(candidate)||candidate==window||candidate==native_window||candidate==folded_window||(idle_strip&&candidate==idle_strip)||candidate==owner||(quick&&candidate==quick->Window())||IsChild(native_window?native_window:window,candidate)||preview.OwnsWindow(candidate)||candidate==GetDesktopWindow()||candidate==GetShellWindow())return;
         if(owner&&GetAncestor(candidate,GA_ROOTOWNER)==owner)return;
         const HWND root=GetAncestor(candidate,GA_ROOT);DWORD process{};
         if(root&&GetWindowThreadProcessId(root,&process)){
@@ -692,12 +755,15 @@ struct ClipboardPanel::Impl {
         }
         SetTimer(EventWindow(),7,100,nullptr);
     }
-    void Show(){CloseQuick();if(!enabled)return;KillTimer(EventWindow(),4);ClosePreview();const HWND foreground=GetForegroundWindow();RememberTarget(foreground);expanded=true;SetWindowTextW(search,L"");query.clear();scroll=0;Filter();selected=visible.empty()?0:visible.front();Place(true);if(opening){SetForegroundWindow(folded_window);SetFocus(folded_window);}else{SetForegroundWindow(window);SetFocus(window);}}
+    void Show(){CloseQuick();if(!enabled)return;KillTimer(EventWindow(),4);KillTimer(EventWindow(),11);ClosePreview();const HWND foreground=GetForegroundWindow();RememberTarget(foreground);expanded=true;SetWindowTextW(search,L"");query.clear();scroll=0;Filter();selected=visible.empty()?0:visible.front();Place(true);if(opening){SetForegroundWindow(folded_window);SetFocus(folded_window);}else{SetForegroundWindow(window);SetFocus(window);}}
     void Fold(){StopOpening(false);paste_click.reset();paste_inflight=false;scroll_drag=false;if(GetCapture()==window)ReleaseCapture();CloseMore();ClosePopup();CancelNaming();CancelReads();ClearFileIcons();app_icon.Reset();brush.Reset();target.Reset();surface.reset();search_text_glyphs=0;ime_active=false;ime_original.clear();ime_text.clear();expanded=false;KillTimer(EventWindow(),2);KillTimer(EventWindow(),3);Place();SetTimer(EventWindow(),4,10000,nullptr);}
     // ---- Custom groups ----------------------------------------------------
     int TabCount()const{return clipboard::History::GroupTabBase+static_cast<int>(history.groups.size());}
     uint32_t TabGroup()const{return tab>=clipboard::History::GroupTabBase&&tab<TabCount()?history.groups[static_cast<size_t>(tab-clipboard::History::GroupTabBase)].id:0;}
     std::wstring GroupName(uint32_t id)const{const auto* g=history.FindGroup(id);return g?g->name:std::wstring{};}
+    // The software D2D factory accumulates rasterizer caches (tens of MB) with use.
+    // Render() recreates it on demand, so the folded idle state never keeps them.
+    void ReleaseRenderer(){images.clear();file_bitmaps.clear();app_icon.Reset();brush.Reset();target.Reset();factory.Reset();}
     void CommitHistory(){if(disk)disk->Commit(history.entries,history.groups);}
     void SelectTab(int value){tab=std::clamp(value,0,std::max(0,TabCount()-1));scroll=0;reveal_tab=true;Filter();RevealSelection();Invalidate();}
     float Measure(const std::wstring& s,int size){
@@ -1052,17 +1118,23 @@ struct ClipboardPanel::Impl {
         LiquidBackdrop(false);Render();if(!surface)return;
         if(!composition)composition=std::make_unique<ClipboardComposition>();
         composition->Present(window,static_cast<UINT>(width),static_cast<UINT>(height),surface->Pixels());
+        HideIdleStrip();
     }
     void Render(int requested_width=0,int requested_height=0,bool content_only=false){
         if(!enabled||!window)return;
         if(!content_only)SelectWindow();
         std::erase_if(images,[&](const auto& item){return !ImageNeeded(item.first);});
         RECT client{};GetClientRect(window,&client);if(requested_width&&requested_height)client={0,0,requested_width,requested_height};if(!client.right||!client.bottom)return;
-        if(!surface||width!=client.right||height!=client.bottom){width=client.right;height=client.bottom;surface=std::make_unique<DibSurface>(width,height);}
+        if(!surface||width!=client.right||height!=client.bottom){target.Reset();width=client.right;height=client.bottom;surface=std::make_unique<DibSurface>(width,height);}
         if(!factory)CheckWin32(SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,factory.GetAddressOf())),"Clipboard renderer");
         if(!writer)CheckWin32(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,__uuidof(IDWriteFactory),reinterpret_cast<IUnknown**>(writer.GetAddressOf()))),"Clipboard text");
-        if(!target){const auto props=D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_PREMULTIPLIED));CheckWin32(SUCCEEDED(factory->CreateDCRenderTarget(&props,&target)),"Clipboard surface");CheckWin32(SUCCEEDED(target->CreateSolidColorBrush(D2D1::ColorF(0),&brush)),"Clipboard brush");}
-        CheckWin32(SUCCEEDED(target->BindDC(surface->Dc(),&client)),"Clipboard bind");target->SetDpi(96*scale,96*scale);target->BeginDraw();target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+        // D2D draws in place into the DIB handed to composition; a resized DIB gets a new
+        // target. Cached thumbnails and file icons move over without another upload
+        // (failures are re-created lazily); brush-holding icon geometry is rebuilt.
+        if(!target){target=CreateMemoryRenderTarget(factory.Get(),surface->Pixels(),width,height,width);
+            std::erase_if(images,[&](auto& item){return !ShareBitmap(target.Get(),item.second);});std::erase_if(file_bitmaps,[&](auto& item){return !ShareBitmap(target.Get(),item.second);});
+            app_icon.Reset();brush.Reset();CheckWin32(SUCCEEDED(target->CreateSolidColorBrush(D2D1::ColorF(0),&brush)),"Clipboard brush");}
+        target->SetDpi(96*scale,96*scale);target->BeginDraw();target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
         const UINT32 bg=dark?0x192330:0xf5f8fc,card=dark?0x222e40:0xffffff,ink=dark?0xe7effb:0x223248,muted=dark?0x95a7bf:0x7e899a,border=dark?0x334358:0xe9edf3,accent=0x267aff;
         if(content_only)target->Clear(D2D1::ColorF(0,0.f));
         else if(custom_outline)target->Clear(D2D1::ColorF(bg,PanelOpacity(dark,expanded&&acrylic)));
@@ -1445,11 +1517,11 @@ struct ClipboardPanel::Impl {
         case clipboard::QuickKeyMessage:if(p->quick_active)p->QuickKey(wp,(lp&1)!=0);return 0;
         case clipboard::QuickWheelMessage:if(p->quick_active&&p->quick&&p->QuickDestinationValid())SendMessageW(p->quick->Window(),WM_MOUSEWHEEL,wp,lp);return 0;
         case clipboard::QuickDismissMessage:p->CloseQuick();return 0;
-        case WM_TIMER:if(wp==10){p->OpeningTick(GetTickCount64());return 0;}if(wp==9){p->LiquidDragTick(GetTickCount64());return 0;}if(wp==8){p->ShortcutFocusTick();return 0;}if(wp==7){if(p->quick_active&&(!p->QuickDestinationValid()||p->hotkeys_suspended||(p->hotkey_allowed&&!p->hotkey_allowed())))p->CloseQuick();return 0;}if(wp==6){KillTimer(w,6);if(p->status==L"已固定 · F2 取消固定"||p->status==L"已取消固定 · F2 固定面板"){p->status.clear();p->Invalidate();}return 0;}if(wp==5){KillTimer(w,5);return 0;}if(wp==4){KillTimer(w,4);if(!p->expanded){if(p->composition)p->composition->TrimIdle();p->parked_composition.reset();}return 0;}if(wp==3){if(GetFocus()==p->search){p->caret_on=!p->caret_on;p->Invalidate();}else KillTimer(w,3);return 0;}if(wp==1)p->Read();if(wp==2)p->PasteTick();return 0;
+        case WM_TIMER:if(wp==10){p->OpeningTick(GetTickCount64());return 0;}if(wp==9){p->LiquidDragTick(GetTickCount64());return 0;}if(wp==8){p->ShortcutFocusTick();return 0;}if(wp==7){if(p->quick_active&&(!p->QuickDestinationValid()||p->hotkeys_suspended||(p->hotkey_allowed&&!p->hotkey_allowed())))p->CloseQuick();return 0;}if(wp==6){KillTimer(w,6);if(p->status==L"已固定 · F2 取消固定"||p->status==L"已取消固定 · F2 固定面板"){p->status.clear();p->Invalidate();}return 0;}if(wp==5){KillTimer(w,5);return 0;}if(wp==4){KillTimer(w,4);if(!p->expanded&&!p->opening&&!p->liquid_drag_active){if(p->composition)p->composition->TrimIdle();p->parked_composition.reset();p->ReleaseRenderer();if(p->idle_layered)ClipboardComposition::DropPrewarm();else SetTimer(w,11,IdleStripDelayMs,nullptr);}return 0;}if(wp==11){KillTimer(w,11);if(!p->expanded&&!p->opening&&!p->liquid_drag_active){p->ReleaseRenderer();p->EnterIdleStrip();if(p->idle_layered)ClipboardComposition::DropPrewarm();}return 0;}if(wp==3){if(GetFocus()==p->search){p->caret_on=!p->caret_on;p->Invalidate();}else KillTimer(w,3);return 0;}if(wp==1)p->Read();if(wp==2)p->PasteTick();return 0;
         case WM_LBUTTONDOWN:p->RememberTarget(GetForegroundWindow());p->paste_click.reset();if(p->popup_open){const float mx=GET_X_LPARAM(lp)/p->scale,my=GET_Y_LPARAM(lp)/p->scale;if(p->InsidePopup(mx,my)){const int row=p->PopupHit(mx,my);if(row>=0)p->ChoosePopup(row);}else p->ClosePopup();return 0;}if(p->menu_open){const float mx=GET_X_LPARAM(lp)/p->scale,my=GET_Y_LPARAM(lp)/p->scale;const int row=p->MenuHit(mx,my);if(row>=0)p->ChooseMore(row);else if(mx<p->W-264||mx>p->W-16||my<64||my>252)p->CloseMore();return 0;}{const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;if(p->expanded&&p->visible.size()>static_cast<size_t>(p->PageRows())&&x>=p->W-12&&y>=p->ListTop&&y<=p->ListBottom){p->BeginScroll(y);return 0;}if(!p->expanded||p->HeaderDragHit(x,y)){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(w,&point);p->BeginDrag(point);return 0;}}if(!p->pinned||GetForegroundWindow()==w)SetFocus(w);for(auto it=p->hits.rbegin();it!=p->hits.rend();++it){const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;const auto r=it->rect;if(x>=r.left&&x<r.right&&y>=r.top&&y<r.bottom){const auto h=*it;if(p->pinned&&(h.action==30||h.action==33)&&!p->preview.IsOpen())p->paste_click=h;else p->Action(h.action,h.id);break;}}return 0;
         case WM_LBUTTONUP:if(p->paste_click){const auto hit=*p->paste_click;p->paste_click.reset();const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;if(x>=hit.rect.left&&x<hit.rect.right&&y>=hit.rect.top&&y<hit.rect.bottom)p->Action(hit.action,hit.id);return 0;}if(p->scroll_drag){p->ScrollAt(GET_Y_LPARAM(lp)/p->scale);p->scroll_drag=false;ReleaseCapture();return 0;}if(p->drag_pending){p->EndDrag();return 0;}break;
         case WM_CAPTURECHANGED:case WM_CANCELMODE:p->paste_click.reset();p->drag_pending=p->scroll_drag=false;p->ReleaseLiquidDrag();p->CloseMore();p->ClosePopup();return 0;
-        case WM_MOUSEMOVE:{if(p->scroll_drag){p->ScrollAt(GET_Y_LPARAM(lp)/p->scale);return 0;}if(p->menu_open){const int row=p->MenuHit(GET_X_LPARAM(lp)/p->scale,GET_Y_LPARAM(lp)/p->scale);if(row!=p->menu_hover){p->menu_hover=row;p->Invalidate();}return 0;}if(p->popup_open){const int row=p->PopupHit(GET_X_LPARAM(lp)/p->scale,GET_Y_LPARAM(lp)/p->scale);if(row!=p->popup_hover){p->popup_hover=row;p->Invalidate();}return 0;}if(p->drag_pending){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(w,&point);p->Drag(point);return 0;}int hit=-1;const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;for(size_t i=0;i<p->hits.size();++i){const auto r=p->hits[i].rect;if(x>=r.left&&x<r.right&&y>=r.top&&y<r.bottom)hit=static_cast<int>(i);}if(hit!=p->hover){p->hover=hit;const wchar_t* hint=L"";if(hit>=0){switch(p->hits[static_cast<size_t>(hit)].action){case 31:hint=L"收藏 / 取消收藏 · Ctrl+D";break;case 32:hint=L"复制内容 · Ctrl+C";break;case 33:hint=L"Enter 粘贴 · Shift+Enter 纯文本";break;case 34:hint=L"删除记录 · Delete";break;case 35:hint=L"移到分组 · Ctrl+G · Ctrl+1–9";break;case 40:hint=L"右键可重命名、更换颜色或删除分组";break;case 41:hint=L"新建分组 · Ctrl+Shift+N";break;case 10:hint=L"固定 / 取消固定面板 · F2";break;case 14:hint=L"折叠到屏幕边缘 · Esc";break;default:break;}}p->status=hint;p->Invalidate();}return 0;}
+        case WM_MOUSEMOVE:{if(w==p->folded_window&&!p->expanded){if(p->idle_layered)ClipboardComposition::Prewarm();SetTimer(p->EventWindow(),4,10000,nullptr);}if(p->scroll_drag){p->ScrollAt(GET_Y_LPARAM(lp)/p->scale);return 0;}if(p->menu_open){const int row=p->MenuHit(GET_X_LPARAM(lp)/p->scale,GET_Y_LPARAM(lp)/p->scale);if(row!=p->menu_hover){p->menu_hover=row;p->Invalidate();}return 0;}if(p->popup_open){const int row=p->PopupHit(GET_X_LPARAM(lp)/p->scale,GET_Y_LPARAM(lp)/p->scale);if(row!=p->popup_hover){p->popup_hover=row;p->Invalidate();}return 0;}if(p->drag_pending){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(w,&point);p->Drag(point);return 0;}int hit=-1;const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;for(size_t i=0;i<p->hits.size();++i){const auto r=p->hits[i].rect;if(x>=r.left&&x<r.right&&y>=r.top&&y<r.bottom)hit=static_cast<int>(i);}if(hit!=p->hover){p->hover=hit;const wchar_t* hint=L"";if(hit>=0){switch(p->hits[static_cast<size_t>(hit)].action){case 31:hint=L"收藏 / 取消收藏 · Ctrl+D";break;case 32:hint=L"复制内容 · Ctrl+C";break;case 33:hint=L"Enter 粘贴 · Shift+Enter 纯文本";break;case 34:hint=L"删除记录 · Delete";break;case 35:hint=L"移到分组 · Ctrl+G · Ctrl+1–9";break;case 40:hint=L"右键可重命名、更换颜色或删除分组";break;case 41:hint=L"新建分组 · Ctrl+Shift+N";break;case 10:hint=L"固定 / 取消固定面板 · F2";break;case 14:hint=L"折叠到屏幕边缘 · Esc";break;default:break;}}p->status=hint;p->Invalidate();}return 0;}
         case WM_MOUSEWHEEL:if(p->preview.ForwardWheel(wp,lp))return 0;if(p->menu_open||p->popup_open)return 0;{POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(w,&point);const float x=point.x/p->scale,y=point.y/p->scale;if(p->expanded&&y>=130&&y<168&&x<p->W-92){p->tab_scroll=std::clamp(p->tab_scroll-GET_WHEEL_DELTA_WPARAM(wp)/static_cast<float>(WHEEL_DELTA)*48.f,0.f,p->tab_scroll_max);p->Invalidate();return 0;}}p->scroll=std::clamp(p->scroll-GET_WHEEL_DELTA_WPARAM(wp)/WHEEL_DELTA,0,std::max(0,static_cast<int>(p->visible.size())-p->PageRows()));p->Invalidate();return 0;
         case WM_KEYDOWN:{const bool ctrl_key=(GetKeyState(VK_CONTROL)&0x8000)&&(wp=='D'||wp=='G'||wp=='N'||(wp>='0'&&wp<='9'));if((wp!=VK_SPACE&&wp!=VK_F2&&wp!=VK_RETURN&&!ctrl_key)||!(lp&(1LL<<30)))p->Key(wp);return 0;}
         case WM_SYSKEYDOWN:if((wp==VK_LEFT||wp==VK_RIGHT)&&p->expanded&&!p->naming){p->Key(wp);return 0;}break;

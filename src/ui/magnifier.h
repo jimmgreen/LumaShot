@@ -13,10 +13,14 @@ void MagnifierPixels(const Frame& frame,RECT monitor,POINT pointer,std::span<uin
 class Magnifier {
 public:
     ~Magnifier(){Close();}
+    // Creates the hidden window and its first layered frame while the capture
+    // overlay is still being prepared, so the first visible hover only moves it.
+    void Prepare(HWND owner,const Frame& frame,RECT monitor,POINT pointer);
     void Show(HWND owner,const Frame& frame,RECT monitor,POINT pointer);
     void Hide();
     void Close();
 private:
+    void Update(HWND owner,const Frame& frame,RECT monitor,POINT pointer);
     HWND window_{};
     std::unique_ptr<DibSurface> surface_;
 };

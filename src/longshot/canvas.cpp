@@ -1,5 +1,6 @@
 #include "longshot/canvas.h"
 #include "ui/glass_surface.h"
+#include "ui/memory_target.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -270,17 +271,14 @@ void Painter::Icon(longshot::Glyph glyph, Box rect, uint32_t color) {
 void LayeredCanvas::Paint(HWND window, Painter& painter, RECT screen, float scale, bool dark, const std::function<void()>& draw) {
     const SIZE size{screen.right - screen.left, screen.bottom - screen.top};
     if (size.cx <= 0 || size.cy <= 0) return;
+    // D2D draws in place into the layered DIB. Painter::Begin makes its brush
+    // per frame, so a resized DIB simply gets a new target.
     if (!surface_ || size.cx != size_.cx || size.cy != size_.cy) {
+        target_.Reset();
         surface_ = std::make_unique<DibSurface>(size.cx, size.cy);
         size_ = size;
     }
-    if (!target_) {
-        const auto properties = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-        Check(painter.Factory()->CreateDCRenderTarget(&properties, &target_), "Long capture surface");
-    }
-    const RECT bounds{0, 0, size.cx, size.cy};
-    Check(target_->BindDC(surface_->Dc(), &bounds), "Bind long capture surface");
+    if (!target_) target_ = CreateMemoryRenderTarget(painter.Factory(), surface_->Pixels(), size.cx, size.cy, size.cx);
     target_->SetDpi(96, 96);
     target_->BeginDraw();
     target_->Clear(D2D1::ColorF(0, 0));

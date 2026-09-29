@@ -297,6 +297,79 @@ static void CheckMismatchedFrame() {
     Expect(stitcher.Add(MakeFrame({0, 0, 100, 100})).status == StitchStatus::Mismatch, "frames of a different size are rejected");
 }
 
+static uint64_t Hash(const Frame& frame) {
+    uint64_t h = 1469598103934665603ull ^ static_cast<uint64_t>(frame.Width()) ^ (static_cast<uint64_t>(frame.Height()) << 32);
+    for (uint32_t p : frame.pixels) h = (h ^ p) * 1099511628211ull;
+    return h;
+}
+
+// Undo history stores deltas against the content: every undo must restore
+// the exact previous state (image and matching frame), across content block
+// boundaries and after in-place repaints that differ from the content.
+static void CheckDeltaUndo() {
+    const View view;
+    Page page = MakePage(view.width, 12000, 91, true);
+    Stitcher stitcher;
+    Random random{17};
+    uint32_t badge = 0;
+    auto shot = [&](int offset, bool repaint) {
+        // Late repaint without scrolling: a header badge and the footer text
+        // change (and stay changed), an animated area in the content flickers.
+        if (repaint) ++badge;
+        Frame frame = Shot(page, view, offset);
+        for (int y = 10; y < 14 && badge; ++y) for (int x = 20; x < 90; ++x) frame.pixels[static_cast<size_t>(y) * view.width + x] = 0xff100000u * badge + static_cast<uint32_t>(x);
+        for (int y = view.Height() - 20; y < view.Height() - 16 && badge; ++y) for (int x = 30; x < 160; ++x) frame.pixels[static_cast<size_t>(y) * view.width + x] = 0xff000000u | (badge * 0x1f3d) | static_cast<uint32_t>(y);
+        if (repaint) for (int y = view.header + 100; y < view.header + 104; ++y) for (int x = 50; x < 250; ++x) frame.pixels[static_cast<size_t>(y) * view.width + x] = 0xff000000 | (random.Next() & 0xffffff);
+        return frame;
+    };
+    std::vector<Frame> frames;
+    std::vector<uint64_t> hashes;
+    std::vector<int> offsets;
+    const int steps[] = {173, 311, 402, 257, 199, 350};
+    frames.push_back(shot(0, false));
+    Expect(stitcher.Add(frames.back()).status == StitchStatus::First, "delta: first frame");
+    hashes.push_back(Hash(stitcher.Compose(false)));
+    int offset = 0;
+    bool ok = true;
+    for (int i = 0; offset + 450 < page.height - view.viewport; ++i) {
+        offset += steps[i % 6];
+        frames.push_back(shot(offset, false));
+        const auto added = stitcher.Add(frames.back());
+        if (added.status != StitchStatus::Appended) { std::cout << "  step " << i << " status " << static_cast<int>(added.status) << '\n'; ok = false; }
+        if (i % 3 == 1) {
+            frames.push_back(shot(offset, true));
+            const auto same = stitcher.Add(frames.back());
+            if (same.status != StitchStatus::Unchanged) { std::cout << "  repaint " << i << " status " << static_cast<int>(same.status) << '\n'; ok = false; }
+        }
+        hashes.push_back(Hash(stitcher.Compose(false)));
+        offsets.push_back(static_cast<int>(frames.size()));
+    }
+    const int appended = static_cast<int>(offsets.size());
+    Expect(ok && stitcher.Height() > 3 * 512, "delta: long run crosses several content blocks");
+    const size_t full = static_cast<size_t>(std::min(appended, 32)) * view.width * view.Height() * sizeof(uint32_t);
+    std::cout << "  history " << stitcher.HistoryBytes() << " bytes vs " << full << " for full frames\n";
+    Expect(stitcher.HistoryBytes() * 4 < full, "delta: history is a fraction of full frames");
+    const Frame copy = stitcher.Compose(false);
+    int undone = 0;
+    bool exact = true;
+    while (stitcher.Undo()) {
+        ++undone;
+        exact = exact && Hash(stitcher.Compose(false)) == hashes[static_cast<size_t>(appended - undone)];
+    }
+    Expect(appended > 32 && undone == 32 && exact, "delta: every undo restores the exact previous image");
+    // Re-adding the same frames (including repaints) must follow the same path.
+    bool replay = true;
+    size_t next = appended > undone ? static_cast<size_t>(offsets[static_cast<size_t>(appended - undone - 1)]) : 1;
+    for (int k = appended - undone; k < appended; ++k) {
+        const size_t end = static_cast<size_t>(offsets[static_cast<size_t>(k)]);
+        for (; next < end; ++next) stitcher.Add(frames[next]);
+        replay = replay && Hash(stitcher.Compose(false)) == hashes[static_cast<size_t>(k + 1)];
+    }
+    Expect(replay && Hash(stitcher.Compose(false)) == Hash(copy), "delta: redo after undo reproduces every step exactly");
+    const Frame consumed = std::move(stitcher).Compose(false);
+    Expect(consumed.pixels == copy.pixels && consumed.Width() == copy.Width(), "consuming compose equals the copying compose");
+}
+
 int main() {
     CheckSteadyScroll();
     CheckRepetitiveContent();
@@ -307,6 +380,7 @@ int main() {
     CheckHeightLimit();
     CheckBlankTail();
     CheckMismatchedFrame();
+    CheckDeltaUndo();
     std::cout << (failures ? "FAILED " : "OK ") << failures << '\n';
     return failures ? 1 : 0;
 }

@@ -18,7 +18,42 @@ namespace lumashot::longshot {
 namespace {
 constexpr UINT kOverviewReady = WM_APP + 311, kJobDone = WM_APP + 312;
 constexpr wchar_t kClass[] = L"LumaShot.LongCaptureViewer";
-constexpr int kTile = 2048;
+// Tiles hold kTile bitmap rows. Below 50% zoom they are box-filtered by
+// 2^level, so bitmap memory follows the screen area, not the image area.
+constexpr int kTile = 512;
+constexpr int kMaxTileLevel = 3;
+int TileLevel(float zoom) {
+    int level = 0;
+    while (level < kMaxTileLevel && zoom * static_cast<float>(2 << level) <= 1.001f) ++level;
+    return level;
+}
+// Box filter by 2^level; partial blocks at the edges average what exists.
+Frame Reduce(const uint32_t* pixels, size_t stride, int width, int height, int level) {
+    const int f = 1 << level, w = (width + f - 1) / f, h = (height + f - 1) / f;
+    Frame result = MakeFrame({0, 0, w, h});
+    std::vector<uint32_t> sum(static_cast<size_t>(w) * 4);
+    std::vector<uint32_t> count(static_cast<size_t>(w));
+    for (int y = 0; y < h; ++y) {
+        std::fill(sum.begin(), sum.end(), 0u);
+        std::fill(count.begin(), count.end(), 0u);
+        for (int sy = y * f; sy < std::min(height, y * f + f); ++sy) {
+            const uint32_t* row = pixels + static_cast<size_t>(sy) * stride;
+            for (int x = 0; x < width; ++x) {
+                const uint32_t p = row[x];
+                uint32_t* s = sum.data() + static_cast<size_t>(x >> level) * 4;
+                s[0] += p & 255; s[1] += (p >> 8) & 255; s[2] += (p >> 16) & 255;
+                ++count[static_cast<size_t>(x >> level)];
+            }
+        }
+        uint32_t* out = result.pixels.data() + static_cast<size_t>(y) * w;
+        for (int x = 0; x < w; ++x) {
+            const uint32_t n = std::max(1u, count[static_cast<size_t>(x)]);
+            const uint32_t* s = sum.data() + static_cast<size_t>(x) * 4;
+            out[x] = 0xff000000u | ((s[2] / n) << 16) | ((s[1] / n) << 8) | (s[0] / n);
+        }
+    }
+    return result;
+}
 constexpr float kTitle = 44, kActions = 60, kSide = 252, kMargin = 20;
 enum Id { Minimize = 1, MaximizeId = 2, CloseId = 3, FitId = 30, ActualId = 31, RecaptureId = 40, OcrId = 41, PinId = 42,
     CopyId = 43, SaveId = 44, AnnotateId = 45, ResetCrop = 50, SeamsId = 60, ScrollbarId = 61, TrimId = 62,
@@ -44,6 +79,9 @@ std::pair<int, int> BlankColumns(const Frame& image, int usable) {
     for (int y = 1; y < h; ++y) {
         const uint32_t* row = image.pixels.data() + static_cast<size_t>(y) * image.Width();
         for (int x = 0; x < w; ++x) uniform[x] &= static_cast<uint8_t>(((row[x] ^ first[x]) & 0xffffff) == 0);
+        // Margins grow inward from the edges; once both edge columns vary
+        // there is nothing left to find.
+        if (!uniform[0] && !uniform[static_cast<size_t>(w) - 1]) break;
     }
     const auto same = [&](int x, int y) { return ((first[x] ^ first[y]) & 0xffffff) == 0; };
     int left = 0, right = 0;
@@ -273,14 +311,15 @@ void Viewer::Paint() {
     EndPaint(window_, &ps);
 }
 
-ComPtr<ID2D1Bitmap> Viewer::CreateTile(int index) {
+ComPtr<ID2D1Bitmap> Viewer::CreateTile(int index, int level) {
     const Frame& image = *image_;
-    const int rows = std::min(kTile, image.Height() - index * kTile);
-    const RECT band{0, index * kTile, image.Width(), index * kTile + rows};
+    const int span = kTile << level;
+    const int rows = std::min(span, image.Height() - index * span);
+    const RECT band{0, index * span, image.Width(), index * span + rows};
     // Annotated tiles are composed in software from the clean pixels, so the
     // screen shows exactly what copy / save / pin will export.
     Frame composed;
-    const uint32_t* pixels = image.pixels.data() + static_cast<size_t>(index) * kTile * image.Width();
+    const uint32_t* pixels = image.pixels.data() + static_cast<size_t>(index) * span * image.Width();
     if (std::any_of(marks_.marks.begin(), marks_.marks.end(), [&](const Mark& mark) { return Touches(mark, band); })) {
         try {
             if (!renderer_) renderer_ = std::make_unique<Renderer>();
@@ -290,10 +329,22 @@ ComPtr<ID2D1Bitmap> Viewer::CreateTile(int index) {
             // Fall back to the clean pixels; export reports its own errors.
         }
     }
+    int bw = image.Width(), bh = rows;
+    Frame reduced;
+    if (level > 0) {
+        try {
+            reduced = Reduce(pixels, static_cast<size_t>(image.Width()), image.Width(), rows, level);
+        } catch (const std::exception&) {
+            return nullptr;
+        }
+        pixels = reduced.pixels.data();
+        bw = reduced.Width();
+        bh = reduced.Height();
+    }
     ComPtr<ID2D1Bitmap> bitmap;
     const auto properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE));
-    if (FAILED(painter_.Target()->CreateBitmap(D2D1::SizeU(static_cast<UINT32>(image.Width()), static_cast<UINT32>(rows)),
-            pixels, static_cast<UINT32>(image.Width() * 4), properties, &bitmap)))
+    if (FAILED(painter_.Target()->CreateBitmap(D2D1::SizeU(static_cast<UINT32>(bw), static_cast<UINT32>(bh)),
+            pixels, static_cast<UINT32>(bw * 4), properties, &bitmap)))
         return nullptr;
     return bitmap;
 }
@@ -311,18 +362,24 @@ void Viewer::DrawImage(const Layout& l) {
     const int r0 = std::clamp(static_cast<int>(std::floor((l.main.top - y0) / z)), 0, h);
     const int r1 = std::clamp(static_cast<int>(std::ceil((l.main.bottom - y0) / z)), 0, h);
     painter_.Fill({x0 - 1, y0 - 1, x0 + iw + 1, y0 + static_cast<float>(h) * z + 1}, dark_ ? 0x60000000 : 0x30203040);
-    const int count = (h + kTile - 1) / kTile;
+    const int level = TileLevel(z), span = kTile << level;
+    if (level != tile_level_) {
+        tiles_.clear();
+        tile_level_ = level;
+    }
+    const int count = (h + span - 1) / span;
     if (static_cast<int>(tiles_.size()) != count) tiles_.assign(static_cast<size_t>(count), nullptr);
-    const int first = r0 / kTile, last = r1 > r0 ? (r1 - 1) / kTile : first;
+    const int first = r0 / span, last = r1 > r0 ? (r1 - 1) / span : first;
     for (int t = 0; t < count; ++t) {
-        if (t < first - 2 || t > last + 2) { tiles_[t].Reset(); continue; } // bounded GPU memory
+        // Visible tiles plus one on each side: bounded memory, no rebuild on small scrolls.
+        if (t < first - 1 || t > last + 1) { tiles_[t].Reset(); continue; }
         if (t < first || t > last || r1 <= r0) continue;
-        const int rows = std::min(kTile, h - t * kTile);
-        if (!tiles_[t]) tiles_[t] = CreateTile(t);
+        const int rows = std::min(span, h - t * span);
+        if (!tiles_[t]) tiles_[t] = CreateTile(t, level);
         if (!tiles_[t]) continue;
-        const float top = y0 + static_cast<float>(t * kTile) * z;
+        const float top = y0 + static_cast<float>(t * span) * z;
         target->DrawBitmap(tiles_[t].Get(), D2D1::RectF(x0, top, x0 + iw, top + static_cast<float>(rows) * z), 1,
-            z >= .999f ? D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR : D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            level == 0 && z >= .999f ? D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR : D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
     // What is left out of the export is dimmed, with the crop edges marked.
     const RECT crop = Crop();
@@ -761,23 +818,24 @@ void Viewer::Start(int kind, std::filesystem::path path) {
         result->path = path;
         const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         try {
+            // Without marks, copy and save encode the crop in place and a pin
+            // gets one copy (its OCR image stays empty and shares the pixels).
+            // Annotations are composited only now, band by band.
             Frame frame;
-            if (marks.empty()) {
-                frame = Extract(*image, crop);
-                if (kind == PinId || kind == OcrId) result->ocr = frame;
-            } else {
-                // Annotations are composited only now, band by band.
+            PixelView view = PixelsOf(*image, crop);
+            if (!marks.empty()) {
                 Renderer renderer;
                 frame = FlattenRegion(renderer, *image, marks, crop);
+                view = PixelsOf(frame);
                 if (kind == PinId || kind == OcrId) result->ocr = Extract(*image, crop);
             }
             if (kind == CopyId) {
-                auto file = format >= 0 ? PrepareClipboardFile(frame, format) : nullptr;
-                result->clipboard = PrepareClipboardImage(frame, file);
+                auto file = format >= 0 ? PrepareClipboardFile(view, format) : nullptr;
+                result->clipboard = PrepareClipboardImage(view, file);
             } else if (kind == SaveId) {
-                SavePng(frame, path);
+                SaveImageFile(view, path, 0);
             } else {
-                result->frame = std::move(frame);
+                result->frame = marks.empty() ? Extract(*image, crop) : std::move(frame);
             }
         } catch (const std::exception& e) {
             const std::string text = e.what();

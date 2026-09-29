@@ -18,11 +18,14 @@ struct ClipboardImage {
     ~ClipboardImage(){if(image)GlobalFree(image);if(drop)GlobalFree(drop);}
 };
 std::shared_ptr<ClipboardFile> PrepareClipboardFile(const Frame&,int format);
+std::shared_ptr<ClipboardFile> PrepareClipboardFile(const PixelView&,int format);
 // Deletes %TEMP%\LumaShot-Clipboard\LumaShot-* files older than age, except keep.
 size_t CleanupClipboardFiles(std::chrono::hours age=std::chrono::hours(24),const std::filesystem::path& keep={});
 // First CF_HDROP path currently on the clipboard, or empty.
 std::filesystem::path CurrentClipboardFile(HWND owner);
 std::unique_ptr<ClipboardImage> PrepareClipboardImage(const Frame&,const std::shared_ptr<ClipboardFile>& file={});
+// Views publish a crop without an intermediate copy.
+std::unique_ptr<ClipboardImage> PrepareClipboardImage(const PixelView&,const std::shared_ptr<ClipboardFile>& file={});
 void PublishClipboardImage(HWND owner,ClipboardImage&);
 void CopyImage(HWND owner,const Frame& frame,const std::shared_ptr<ClipboardFile>& file={});
 void CopyText(HWND owner,const std::wstring& text);

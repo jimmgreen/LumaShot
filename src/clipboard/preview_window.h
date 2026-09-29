@@ -77,7 +77,7 @@ private:
     int width_{}, height_{};
     ComPtr<ID2D1Factory> factory_;
     ComPtr<IDWriteFactory> writer_;
-    ComPtr<ID2D1DCRenderTarget> target_;
+    ComPtr<ID2D1RenderTarget> target_;
     ComPtr<ID2D1SolidColorBrush> brush_;
     ComPtr<ID2D1Bitmap> image_bitmap_;
     ComPtr<IDWriteTextFormat> title_font_;

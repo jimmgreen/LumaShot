@@ -1,5 +1,6 @@
 #include "recording/core.h"
 #include "recording/encoder.h"
+#include "app/diagnostics.h"
 #include <psapi.h>
 #include <iostream>
 #include <condition_variable>
@@ -16,5 +17,5 @@ int main(){CoInitializeEx(nullptr,COINIT_MULTITHREADED);MFStartup(MF_VERSION);in
         std::cout<<"1080p30 GPU synthetic + AAC, frames="<<final.frames<<", dropped="<<final.dropped<<", wall_seconds="<<seconds<<", total_CPU_percent="<<cpu<<", warm_private_MiB="<<warm/1048576.<<", final_private_MiB="<<last/1048576.<<", peak_private_MiB="<<peak/1048576.<<std::endl;
         if(final.frames!=600||peak>warm+24*1024*1024)throw std::runtime_error("Recording failed frame count or bounded-memory check");std::cout<<"PASS 20 second recording has bounded post-warmup private memory"<<std::endl;
         ComPtr<IMFSourceReader> reader;Check(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader),"Read audio output");reader->SetStreamSelection(DWORD(MF_SOURCE_READER_ALL_STREAMS),FALSE);reader->SetStreamSelection(DWORD(MF_SOURCE_READER_FIRST_AUDIO_STREAM),TRUE);ComPtr<IMFMediaType> type;MFCreateMediaType(&type);type->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Audio);type->SetGUID(MF_MT_SUBTYPE,MFAudioFormat_PCM);Check(reader->SetCurrentMediaType(DWORD(MF_SOURCE_READER_FIRST_AUDIO_STREAM),nullptr,type.Get()),"Decode AAC output");bool audible=false;unsigned samples=0;for(int i=0;i<100;++i){DWORD flags{};ComPtr<IMFSample> sample;Check(reader->ReadSample(DWORD(MF_SOURCE_READER_FIRST_AUDIO_STREAM),0,nullptr,&flags,nullptr,&sample),"Decode tone");if(flags&MF_SOURCE_READERF_ENDOFSTREAM)break;if(!sample)continue;ComPtr<IMFMediaBuffer> buffer;sample->ConvertToContiguousBuffer(&buffer);BYTE* bytes{};DWORD length{};buffer->Lock(&bytes,nullptr,&length);for(DWORD j=0;j<length/2;++j)if(std::abs(reinterpret_cast<short*>(bytes)[j])>100)audible=true;buffer->Unlock();++samples;}if(!audible||!samples)throw std::runtime_error("Encoded synthetic tone missing");std::cout<<"PASS AAC audio decodes to the generated synthetic tone"<<std::endl;
-    }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;result=1;}MFShutdown();CoUninitialize();return result;
+    }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;result=1;}lumashot::Diagnostics::Get().Flush();MFShutdown();CoUninitialize();return result;
 }

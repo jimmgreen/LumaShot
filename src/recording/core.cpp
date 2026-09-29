@@ -2,12 +2,14 @@
 #include "recording/encoder.h"
 #include "recording/audio.h"
 #include "recording/latest_frame.h"
+#include "app/diagnostics.h"
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
+#include <avrt.h>
 #include <d3d10.h>
 #include <algorithm>
 #include <cmath>
@@ -15,6 +17,32 @@ namespace lumashot::recording {
 using namespace winrt::Windows::Graphics::Capture;
 using namespace winrt::Windows::Graphics::DirectX;
 struct Event {HANDLE value{CreateEventW(nullptr,FALSE,FALSE,nullptr)};~Event(){if(value)CloseHandle(value);}};
+// Frame pacing for the capture thread. WaitForSingleObject timeouts round to the
+// ~15.6 ms system tick, and Windows coalesces timers and applies EcoQoS to
+// processes that are not in the foreground, which a recorder almost never is:
+// frames then arrive 60-250 ms late and are skipped. A high-resolution waitable
+// timer wakes on time, MMCSS "Capture" schedules the thread as media capture,
+// and execution-speed throttling is turned off for this thread only.
+class FramePacer {
+    HANDLE timer_{},task_{};
+public:
+    FramePacer(){
+        timer_=CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS);
+        if(!timer_)timer_=CreateWaitableTimerExW(nullptr,nullptr,0,TIMER_ALL_ACCESS);
+        DWORD index=0;task_=AvSetMmThreadCharacteristicsW(L"Capture",&index);
+        THREAD_POWER_THROTTLING_STATE state{THREAD_POWER_THROTTLING_CURRENT_VERSION,THREAD_POWER_THROTTLING_EXECUTION_SPEED,0};
+        SetThreadInformation(GetCurrentThread(),ThreadPowerThrottling,&state,sizeof(state));
+    }
+    FramePacer(const FramePacer&)=delete;FramePacer& operator=(const FramePacer&)=delete;
+    ~FramePacer(){if(task_)AvRevertMmThreadCharacteristics(task_);if(timer_)CloseHandle(timer_);}
+    // Waits up to `delay` (100 ns units, capped at 50 ms) or until `wake` is signaled.
+    void Wait(HANDLE wake,long long delay){
+        delay=std::clamp(delay,0LL,500000LL);
+        LARGE_INTEGER due{};due.QuadPart=-delay;
+        if(!timer_||!SetWaitableTimer(timer_,&due,0,nullptr,nullptr,FALSE)){WaitForSingleObject(wake,DWORD(delay/10000+1));return;}
+        const HANDLE handles[]{wake,timer_};WaitForMultipleObjects(2,handles,FALSE,100);
+    }
+};
 void Session::Start(Options options,std::filesystem::path file,std::function<void(Status)> report){
     if(thread_.joinable())throw std::runtime_error("Recording already started");stop_=false;pause_=false;
     thread_=std::jthread([this,options,file=std::move(file),report=std::move(report)]{
@@ -49,6 +77,7 @@ void Session::Start(Options options,std::filesystem::path file,std::function<voi
             ComPtr<ID3D11RenderTargetView> synthetic_view;if(options.synthetic)Check(device->CreateRenderTargetView(latest.Get(),nullptr,&synthetic_view),"Synthetic render target");
             if(stop_){encoder.Finish();throw std::runtime_error("Recording canceled before start");}
             stage=L"WGC 启动";if(capture)capture.StartCapture();if(audio)audio->Pause(false);
+            FramePacer pacer;
             Clock clock;bool paused=false,received=options.synthetic;long long next=0,last_report=-10000000,audio_frames=0;const long long step=10000000/options.fps;
             status.state=State::Recording;report(status);
             while(!stop_){
@@ -56,7 +85,7 @@ void Session::Start(Options options,std::filesystem::path file,std::function<voi
                 if(paused){WaitForSingleObject(event->value,50);continue;}
                 if(options.target&&!IsWindow(options.target))break;
                 if(options.target&&IsIconic(options.target)){pause_=true;continue;}
-                if(clock.Now()<next){WaitForSingleObject(event->value,std::min<DWORD>(50,DWORD((next-clock.Now())/10000+1)));continue;}
+                if(clock.Now()<next){pacer.Wait(event->value,next-clock.Now());continue;}
                 stage=L"WGC 读取帧";if(pool){
                     ConsumeLatestFrame([&]{return pool.TryGetNextFrame();},[&](const Direct3D11CaptureFrame& frame){
                         const auto size=frame.ContentSize();
@@ -69,13 +98,13 @@ void Session::Start(Options options,std::filesystem::path file,std::function<voi
                     });
                 }
                 const auto now=clock.Now();if(!received){if(now>50000000)throw std::runtime_error("No capture frames received");WaitForSingleObject(event->value,30);continue;}
-                if(now<next){WaitForSingleObject(event->value,std::min<DWORD>(50,DWORD((next-now)/10000+1)));continue;}
+                if(now<next){pacer.Wait(event->value,next-now);continue;}
                 if(options.synthetic){const float color[]={float(status.frames%30)/30.f,.35f,.75f,1};context->ClearRenderTargetView(synthetic_view.Get(),color);}
                 // One frame in flight on this thread; skip overdue presentation
                 // times instead of accumulating frames when an encoder is slow.
-                if(now-next>step*2){const auto skipped=(now-next)/step;status.dropped+=static_cast<unsigned>(skipped);next+=skipped*step;}
-                encoder.Frame(latest.Get(),crop,next,step);
-                if(audio||synthetic_audio){const auto end=(next+step)*48000/10000000;const auto count=static_cast<size_t>(end-audio_frames);if(count>24000)throw std::runtime_error("Encoder cannot keep up with audio");std::vector<short> samples;if(audio)samples=audio->Read(count);else{samples.resize(count*2);for(size_t i=0;i<count;++i)samples[i*2]=samples[i*2+1]=short(8000*std::sin((audio_frames+static_cast<long long>(i))*6.283185307179586*440/48000));}encoder.AudioFrame(samples.data(),count,audio_frames);audio_frames=end;}
+                if(now-next>step*2){const auto skipped=(now-next)/step;status.dropped+=static_cast<unsigned>(skipped);next+=skipped*step;Diagnostics::Get().Add("record_drop",Diagnostics::Now(),skipped);}
+                {TraceScope encode("record_encode",status.frames);encoder.Frame(latest.Get(),crop,next,step);}
+                {TraceScope audio_trace("record_audio");if(audio||synthetic_audio){const auto end=(next+step)*48000/10000000;const auto count=static_cast<size_t>(end-audio_frames);if(count>24000)throw std::runtime_error("Encoder cannot keep up with audio");std::vector<short> samples;if(audio)samples=audio->Read(count);else{samples.resize(count*2);for(size_t i=0;i<count;++i)samples[i*2]=samples[i*2+1]=short(8000*std::sin((audio_frames+static_cast<long long>(i))*6.283185307179586*440/48000));}encoder.AudioFrame(samples.data(),count,audio_frames);audio_frames=end;}}
                 ++status.frames;next+=step;status.time=next;
                 if(now-last_report>=10000000){report(status);last_report=now;std::error_code error;const auto space=std::filesystem::space(file.parent_path(),error);if(!error&&space.available<64*1024*1024)throw std::runtime_error("Insufficient free space");}
                 if(options.synthetic&&status.frames>=static_cast<unsigned>(options.synthetic_frames))break;

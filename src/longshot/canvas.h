@@ -72,7 +72,7 @@ public:
     void Paint(HWND window,Painter& painter,RECT screen,float scale,bool dark,const std::function<void()>& draw);
     void Reset(){target_.Reset();surface_.reset();size_={};}
 private:
-    ComPtr<ID2D1DCRenderTarget> target_;
+    ComPtr<ID2D1RenderTarget> target_;
     std::unique_ptr<DibSurface> surface_;
     SIZE size_{};
 };

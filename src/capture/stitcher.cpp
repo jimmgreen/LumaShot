@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstring>
 #include <unordered_map>
+#include <utility>
 
 namespace lumashot {
 namespace {
@@ -234,7 +235,7 @@ StitchResult Stitcher::Add(const Frame& frame, int hint) {
             width_ = frame_height_ = 0;
             return {StitchStatus::Limit};
         }
-        content_ = frame.pixels;
+        WriteContent(0, frame.pixels.data(), frame_height_);
         content_rows_ = frame_height_;
         last_ = frame;
         last_signatures_ = SignRows(frame, guard_);
@@ -248,7 +249,10 @@ StitchResult Stitcher::Add(const Frame& frame, int hint) {
         // Nothing scrolled. Refresh the last frame so that late repaints of
         // fixed bars and the visible content are what gets composed.
         pending_.reset();
-        if (history_.empty() && footer_ < 0) content_ = frame.pixels;
+        if (history_.empty() && footer_ < 0 && frame.pixels != last_.pixels) {
+            WriteContent(0, frame.pixels.data(), frame_height_);
+            ++epoch_;
+        }
         last_ = frame;
         last_signatures_ = std::move(signatures);
         return {StitchStatus::Unchanged, 0, same, 0};
@@ -298,14 +302,11 @@ StitchResult Stitcher::Append(Frame frame, RowSignatures signatures, int shift, 
         status = StitchStatus::Limit;
     }
     DetectScrollbar(frame, shift, top, bottom);
-    history_.push_back({content_rows_, std::move(last_), previous_header, last_shift_});
+    history_.push_back(Delta(previous_header));
     if (history_.size() > static_cast<size_t>(std::max(1, options_.history))) history_.pop_front();
     seams_.push_back(content_rows_);
-    content_.resize(static_cast<size_t>(content_rows_ + rows) * width_);
     const int first = h - footer_ - shift;
-    std::memcpy(content_.data() + static_cast<size_t>(content_rows_) * width_,
-        frame.pixels.data() + static_cast<size_t>(first) * width_,
-        static_cast<size_t>(rows) * width_ * sizeof(uint32_t));
+    WriteContent(content_rows_, frame.pixels.data() + static_cast<size_t>(first) * width_, rows);
     content_rows_ += rows;
     last_ = std::move(frame);
     last_signatures_ = std::move(signatures);
@@ -347,8 +348,8 @@ bool Stitcher::Undo() {
     History entry = std::move(history_.back());
     history_.pop_back();
     content_rows_ = entry.content_rows;
-    content_.resize(static_cast<size_t>(content_rows_) * width_);
-    last_ = std::move(entry.previous);
+    TruncateContent(content_rows_);
+    last_ = Restore(entry);
     last_signatures_ = SignRows(last_, guard_);
     header_ = entry.header;
     last_shift_ = entry.shift;
@@ -359,12 +360,12 @@ bool Stitcher::Undo() {
 
 const uint32_t* Stitcher::Row(int y) const {
     if (y < 0 || y >= Height()) return nullptr;
-    if (y < content_rows_) return content_.data() + static_cast<size_t>(y) * width_;
+    if (y < content_rows_) return ContentRow(y);
     const int fy = frame_height_ - (Height() - y);
     return last_.pixels.data() + static_cast<size_t>(fy) * width_;
 }
 
-Frame Stitcher::Compose(bool crop_scrollbar) const {
+Frame Stitcher::Compose(bool crop_scrollbar) const& {
     if (!Started()) return {};
     const int crop = crop_scrollbar ? std::min(scrollbar_, width_ - 1) : 0;
     const int w = width_ - crop, h = Height();
@@ -372,5 +373,92 @@ Frame Stitcher::Compose(bool crop_scrollbar) const {
     for (int y = 0; y < h; ++y)
         std::memcpy(result.pixels.data() + static_cast<size_t>(y) * w, Row(y), static_cast<size_t>(w) * sizeof(uint32_t));
     return result;
+}
+
+Frame Stitcher::Compose(bool crop_scrollbar) && {
+    if (!Started()) return {};
+    const int crop = crop_scrollbar ? std::min(scrollbar_, width_ - 1) : 0;
+    const int w = width_ - crop, h = Height();
+    history_.clear();
+    pending_.reset();
+    Frame result = MakeFrame({0, 0, w, h});
+    for (int y = 0; y < h; ++y) {
+        std::memcpy(result.pixels.data() + static_cast<size_t>(y) * w, Row(y), static_cast<size_t>(w) * sizeof(uint32_t));
+        // A block is released as soon as its last row is copied.
+        if (y < content_rows_ && (y % BlockRows == BlockRows - 1 || y == content_rows_ - 1))
+            blocks_[static_cast<size_t>(y / BlockRows)].reset();
+    }
+    blocks_.clear();
+    last_ = {};
+    last_signatures_ = {};
+    content_rows_ = 0;
+    width_ = 0;
+    return result;
+}
+
+void Stitcher::WriteContent(int y, const uint32_t* source, int rows) {
+    const size_t needed = static_cast<size_t>((y + rows + BlockRows - 1) / BlockRows);
+    while (blocks_.size() < needed)
+        blocks_.push_back(std::make_unique_for_overwrite<uint32_t[]>(static_cast<size_t>(BlockRows) * width_));
+    for (int i = 0; i < rows; ++i)
+        std::memcpy(ContentRow(y + i), source + static_cast<size_t>(i) * width_, static_cast<size_t>(width_) * sizeof(uint32_t));
+}
+
+void Stitcher::TruncateContent(int rows) {
+    blocks_.resize(static_cast<size_t>((std::max(rows, 0) + BlockRows - 1) / BlockRows));
+}
+
+Stitcher::History Stitcher::Delta(int previous_header) const {
+    // At this point the content ends with the scrolling rows of last_: frame
+    // row y sits at content row content_rows_ + y - (h - footer). Fixed header
+    // rows usually repeat the top of the content (the first frame). Only the
+    // columns that neither reproduces are stored.
+    const int h = frame_height_, w = width_, band_end = h - std::max(footer_, 0);
+    History entry{content_rows_, previous_header, last_shift_, last_.bounds, std::vector<Line>(static_cast<size_t>(h)), {}};
+    const auto span = [w](const uint32_t* a, const uint32_t* b) {
+        int x0 = 0, x1 = w;
+        while (x0 < w && a[x0] == b[x0]) ++x0;
+        if (x0 == w) return std::pair{0, 0};
+        while (x1 > x0 && a[x1 - 1] == b[x1 - 1]) --x1;
+        return std::pair{x0, x1};
+    };
+    for (int y = 0; y < h; ++y) {
+        const uint32_t* row = last_.pixels.data() + static_cast<size_t>(y) * w;
+        Line line{-1, 0, w};
+        const int aligned = y < band_end ? content_rows_ + y - band_end : -1;
+        if (aligned >= 0 && aligned < content_rows_) {
+            const auto [x0, x1] = span(row, ContentRow(aligned));
+            line = {aligned, x0, x1};
+        }
+        if (line.x1 - line.x0 > 64 && y < content_rows_ && y != aligned) {
+            const auto [x0, x1] = span(row, ContentRow(y));
+            if (x1 - x0 < line.x1 - line.x0) line = {y, x0, x1};
+        }
+        entry.lines[static_cast<size_t>(y)] = line;
+        entry.patch.insert(entry.patch.end(), row + line.x0, row + line.x1);
+    }
+    entry.patch.shrink_to_fit();
+    return entry;
+}
+
+Frame Stitcher::Restore(const History& entry) const {
+    Frame frame = MakeFrame(entry.bounds);
+    const int w = width_;
+    size_t offset = 0;
+    for (int y = 0; y < frame_height_; ++y) {
+        const Line& line = entry.lines[static_cast<size_t>(y)];
+        uint32_t* row = frame.pixels.data() + static_cast<size_t>(y) * w;
+        if (line.ref >= 0) std::memcpy(row, ContentRow(line.ref), static_cast<size_t>(w) * sizeof(uint32_t));
+        const size_t count = static_cast<size_t>(line.x1 - line.x0);
+        if (count) std::memcpy(row + line.x0, entry.patch.data() + offset, count * sizeof(uint32_t));
+        offset += count;
+    }
+    return frame;
+}
+
+size_t Stitcher::HistoryBytes() const {
+    size_t bytes = 0;
+    for (const History& entry : history_) bytes += entry.lines.capacity() * sizeof(Line) + entry.patch.capacity() * sizeof(uint32_t);
+    return bytes;
 }
 }

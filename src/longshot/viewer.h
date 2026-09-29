@@ -78,7 +78,7 @@ private:
     void Annotated(std::optional<Document> edited, int follow, RECT slice, std::vector<size_t> taken);
     void MarksChanged();
     bool ConfirmDiscard();
-    ComPtr<ID2D1Bitmap> CreateTile(int index);
+    ComPtr<ID2D1Bitmap> CreateTile(int index, int level);
 
     Host host_;
     std::function<void(Viewer*)> closed_;
@@ -92,6 +92,7 @@ private:
     Painter painter_;
     ComPtr<ID2D1HwndRenderTarget> target_;
     std::vector<ComPtr<ID2D1Bitmap>> tiles_;
+    int tile_level_{-1};
     ComPtr<ID2D1Bitmap> overview_bitmap_;
     // View state (image pixels).
     bool fit_{true}, show_seams_{}, remove_scrollbar_{true}, trim_{};

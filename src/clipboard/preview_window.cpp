@@ -1,9 +1,11 @@
 ﻿#include <stdexcept>
 #include "clipboard/preview_window.h"
+#include "ui/memory_target.h"
 #include <dwmapi.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace lumashot::clipboard {
 
@@ -276,10 +278,19 @@ void PreviewWindow::Render() {
     if (!surface_ || width_ != client.right || height_ != client.bottom) {
         width_ = client.right;
         height_ = client.bottom;
-        surface_ = std::make_unique<DibSurface>(width_, height_);
         syntax_mask_.Reset();
-        // A DC target can bind the resized DIB without recreating glyph/image resources.
         text_layout_.Reset();
+        // D2D draws in place into the presented DIB; a resized DIB needs a new
+        // target. The decoded image moves over without another upload.
+        auto surface = std::make_unique<DibSurface>(width_, height_);
+        if (factory_) {
+            auto target = CreateMemoryRenderTarget(factory_.Get(), surface->Pixels(), width_, height_, width_);
+            ShareBitmap(target.Get(), image_bitmap_);
+            brush_.Reset();
+            CheckWin32(SUCCEEDED(target->CreateSolidColorBrush(D2D1::ColorF(0), &brush_)), "QuickLook brush");
+            target_ = std::move(target);
+        }
+        surface_ = std::move(surface);
     }
 
     if (!factory_) {
@@ -289,14 +300,10 @@ void PreviewWindow::Render() {
         CheckWin32(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(writer_.GetAddressOf()))), "QuickLook writer");
     }
     if (!target_) {
-        const auto props = D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-        CheckWin32(SUCCEEDED(factory_->CreateDCRenderTarget(&props, &target_)), "QuickLook target");
+        target_ = CreateMemoryRenderTarget(factory_.Get(), surface_->Pixels(), width_, height_, width_);
         CheckWin32(SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0), &brush_)), "QuickLook brush");
     }
 
-    CheckWin32(SUCCEEDED(target_->BindDC(surface_->Dc(), &client)), "QuickLook bind");
     target_->SetDpi(96 * scale_, 96 * scale_);
     target_->BeginDraw();
     target_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);

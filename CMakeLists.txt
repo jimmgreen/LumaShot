@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(LumaShot VERSION 0.1.0 LANGUAGES CXX RC)
+project(LumaShot VERSION 0.2.0 LANGUAGES CXX RC)
 set(LUMATEXT_PACKAGE "${CMAKE_CURRENT_SOURCE_DIR}/deps/lumatext")
 add_library(lumatext_binary SHARED IMPORTED)
 set_target_properties(lumatext_binary PROPERTIES
@@ -20,6 +20,14 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_compile_options(/W4 /WX /permissive- /utf-8 /EHsc)
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
     WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+# In-app updater: signed manifest + verified installer over GitHub or file proxies.
+configure_file(src/update/version.h.in "${CMAKE_BINARY_DIR}/version/lumashot_version.h" @ONLY)
+add_library(lumashot_update STATIC src/update/manifest.cpp src/update/http.cpp src/update/updater.cpp)
+target_include_directories(lumashot_update PUBLIC src "${CMAKE_BINARY_DIR}/version")
+target_link_libraries(lumashot_update PUBLIC winhttp bcrypt shell32 ole32)
+# The tray host first touches the network ~90 s after start; keep WinHTTP out of cold start.
+target_link_options(lumashot_update INTERFACE /DELAYLOAD:winhttp.dll)
+target_link_libraries(lumashot_update INTERFACE delayimp)
 add_library(lumashot_recording STATIC src/recording/core.cpp src/recording/encoder.cpp src/recording/gif.cpp src/recording/gif_frames.cpp src/recording/gif_export.cpp src/recording/gif_optimizer.cpp src/recording/mp4_export.cpp src/recording/preview.cpp)
 target_include_directories(lumashot_recording PUBLIC src)
 target_link_libraries(lumashot_recording PUBLIC d3d11 dxgi mfplat mfreadwrite mfuuid evr windowsapp windowscodecs ole32 propsys bcrypt avrt)
@@ -68,6 +76,7 @@ target_sources(lumashot_ui PRIVATE src/ui/brand_icon.cpp "${CMAKE_BINARY_DIR}/ge
 target_include_directories(lumashot_ui PRIVATE "${CMAKE_BINARY_DIR}/generated")
 target_sources(lumashot_ui PRIVATE src/ui/window_surface.cpp src/clipboard/panel.cpp src/clipboard/native.cpp src/clipboard/preview_window.cpp)
 target_link_libraries(lumashot_ui PUBLIC comctl32 shell32 dwmapi)
+target_link_libraries(lumashot_ui PUBLIC lumashot_update)
 target_sources(lumashot_ui PRIVATE src/ui/text_renderer.cpp src/ui/text_bounds.cpp)
 target_sources(lumashot_ui PRIVATE src/ui/dropdown.cpp)
 target_sources(lumashot_ui PRIVATE src/model/arrow.cpp src/app/tool_preferences.cpp)
@@ -675,3 +684,8 @@ foreach(lumashot_target IN LISTS lumashot_all_targets)
         target_link_libraries(${lumashot_target} PRIVATE lumashot_longshot)
     endif()
 endforeach()
+# Updater: manifest signature/version rules and mirror fallback against a loopback server.
+add_executable(lumashot_update_test tests/update_test.cpp)
+target_link_libraries(lumashot_update_test PRIVATE lumashot_update ws2_32)
+add_test(NAME update_manifest COMMAND lumashot_update_test)
+set_tests_properties(update_manifest PROPERTIES TIMEOUT 120)

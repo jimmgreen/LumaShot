@@ -83,6 +83,14 @@ Preferences Preferences::LoadFrom(const std::filesystem::path& path) {
     wchar_t folder[32768]{};
     GetPrivateProfileStringW(L"General",L"Folder",L"",folder,32768,path.c_str());
     value.save_directory=folder;
+    value.update_auto_check=GetPrivateProfileIntW(L"General",L"UpdateAutoCheck",1,path.c_str())!=0;
+    wchar_t text[2048]{};
+    GetPrivateProfileStringW(L"General",L"UpdateLastCheck",L"0",text,64,path.c_str());
+    value.update_last_check=std::max(0LL,_wtoi64(text));
+    GetPrivateProfileStringW(L"General",L"UpdateMirrors",L"",text,2048,path.c_str());
+    value.update_mirrors=text;
+    GetPrivateProfileStringW(L"General",L"LastRunVersion",L"",text,64,path.c_str());
+    value.last_run_version=text;
     return value;
 }
 void Preferences::Save() const {
@@ -123,6 +131,8 @@ void Preferences::SaveTo(const std::filesystem::path& destination) const {
     if(!WritePrivateProfileStringW(L"General",L"LastTool",nullptr,temporary.c_str()))
         throw std::runtime_error("Unable to remove obsolete last tool setting");
     write(L"Modifiers",std::to_wstring(modifiers));write(L"Folder",save_directory.native());
+    write(L"UpdateAutoCheck",update_auto_check?L"1":L"0");write(L"UpdateLastCheck",std::to_wstring(update_last_check));
+    write(L"UpdateMirrors",update_mirrors);write(L"LastRunVersion",last_run_version);
     WritePrivateProfileStringW(nullptr,nullptr,nullptr,temporary.c_str());
     if(!MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))throw std::runtime_error("Unable to commit settings");
     WritePrivateProfileStringW(nullptr,nullptr,nullptr,path.c_str());

@@ -15,10 +15,10 @@ void Key(Settings& s,UINT key,bool down){s.Input(key,down);Expect(input_blocked,
 void Finish(Settings& s){SendMessageW(s.window,Finished,0,0);Expect(!s.hook&&!s.recording&&!s.draining&&!input_blocked,"hook removed after complete chord");}
 void Snapshot(Settings& s,const wchar_t* file,float scale){
     RECT previous{};GetWindowRect(s.window,&previous);const float old=s.scale;
-    std::array<RECT,24> rects{};constexpr int ids[]={128,119,120,103,101,115,126,129,127,116,117,118,121,122,123,124,125,110,111,112,113,IDOK,IDCANCEL,114};
-    for(int i=0;i<24;++i){GetWindowRect(GetDlgItem(s.window,ids[i]),&rects[i]);MapWindowPoints(nullptr,s.window,reinterpret_cast<POINT*>(&rects[i]),2);}
-    SetWindowPos(s.window,nullptr,0,0,int(500*scale),int(1048*scale),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);s.scale=scale;
-    for(int i=0;i<24;++i){const auto r=rects[i];SetWindowPos(GetDlgItem(s.window,ids[i]),nullptr,int(r.left/old*scale),int(r.top/old*scale),int((r.right-r.left)/old*scale),int((r.bottom-r.top)/old*scale),SWP_NOZORDER|SWP_NOACTIVATE);}
+    std::array<RECT,26> rects{};constexpr int ids[]={128,119,120,103,101,115,126,129,127,130,131,116,117,118,121,122,123,124,125,110,111,112,113,IDOK,IDCANCEL,114};
+    for(int i=0;i<26;++i){GetWindowRect(GetDlgItem(s.window,ids[i]),&rects[i]);MapWindowPoints(nullptr,s.window,reinterpret_cast<POINT*>(&rects[i]),2);}
+    SetWindowPos(s.window,nullptr,0,0,int(500*scale),int(1110*scale),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);s.scale=scale;
+    for(int i=0;i<26;++i){const auto r=rects[i];SetWindowPos(GetDlgItem(s.window,ids[i]),nullptr,int(r.left/old*scale),int(r.top/old*scale),int((r.right-r.left)/old*scale),int((r.bottom-r.top)/old*scale),SWP_NOZORDER|SWP_NOACTIVATE);}
     s.RenderSurface();auto frame=MakeFrame({0,0,s.surface_width,s.surface_height});
     const auto* pixels=s.surface->Pixels();Expect((pixels[0]>>24)==0,"production surface has fully transparent outer corner");
     const auto hasInk=[&](RECT bounds,UINT32 ink){
@@ -62,7 +62,7 @@ void CALLBACK Drive(HWND,UINT,UINT_PTR timer,DWORD){
     RECT outer{},client{};GetWindowRect(w,&outer);GetClientRect(w,&client);POINT origin{};ClientToScreen(w,&origin);
     Expect(!(GetWindowLongPtrW(w,GWL_STYLE)&(WS_CAPTION|WS_THICKFRAME|WS_BORDER)),"actual dialog has no system caption or border");
     Expect(origin.x==outer.left&&origin.y==outer.top&&client.right==outer.right-outer.left&&client.bottom==outer.bottom-outer.top,"actual client and window extents agree");
-    for(int id:{128,115,116,117,118,121,122,123,124,125,126,129,127,113,IDCANCEL,IDOK}){RECT r{};GetWindowRect(GetDlgItem(w,id),&r);Expect(r.left>=outer.left&&r.right<=outer.right&&r.top>=outer.top&&r.bottom<=outer.bottom,"file paste and footer controls fully inside real window bounds");}
+    for(int id:{128,115,116,117,118,121,122,123,124,125,126,129,127,130,131,113,IDCANCEL,IDOK}){RECT r{};GetWindowRect(GetDlgItem(w,id),&r);Expect(r.left>=outer.left&&r.right<=outer.right&&r.top>=outer.top&&r.bottom<=outer.bottom,"file paste and footer controls fully inside real window bounds");}
     if(scenario==4){
         if(phase++==0){
             const DWORD foreground=GetWindowThreadProcessId(GetForegroundWindow(),nullptr),current=GetCurrentThreadId();
@@ -165,7 +165,6 @@ int main(){
     wchar_t keep[8]{};GetPrivateProfileStringW(L"Unrelated",L"Keep",L"",keep,8,path.c_str());Expect(std::wstring(keep)==L"yes","atomic settings save preserves unknown fields");std::filesystem::remove(path);
     CoUninitialize();return failures?1:0;
 }
-
 
 
 

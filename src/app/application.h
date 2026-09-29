@@ -14,6 +14,7 @@
 #include "longshot/long_capture.h"
 #include "model/selection.h"
 #include "ui/text_editor.h"
+#include "update/updater.h"
 #include <mutex>
 #include <thread>
 #include <span>
@@ -104,6 +105,23 @@ private:
     void PaintTextEditor(HDC);
     void Notice(const std::wstring& text);
     HWND Owner() const;
+    // In-app updater (src/update); all of this state is UI-thread only.
+    void StartUpdater();
+    void UpdateTimer();
+    void CheckForUpdates(bool manual);
+    void UpdateNotification(WPARAM code);
+    void PromptUpdate();
+    void StartUpdateDownload();
+    void PromptInstall();
+    void InstallUpdate();
+    bool UpdateBusy() const;
+    void SetTrayTip(const std::wstring& text);
+    update::Endpoints UpdateEndpoints() const;
+    std::unique_ptr<update::Updater> updater_;
+    std::optional<update::Manifest> update_manifest_;
+    std::vector<std::string> update_sources_;
+    std::filesystem::path update_ready_;
+    bool update_manual_{},update_prompting_{},update_version_dirty_{};
     HWND main_{},edit_{},edit_host_{},edit_owner_{};
     HICON tray_icon_{};
     HFONT edit_font_{};
@@ -180,7 +198,6 @@ private:
     UINT taskbar_created_{};
 };
 }
-
 
 
 

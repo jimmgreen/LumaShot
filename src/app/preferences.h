@@ -25,6 +25,13 @@ struct Preferences {
     UINT video_modifiers{MOD_CONTROL | MOD_ALT},video_key{'R'};
     UINT clipboard_modifiers{MOD_WIN},clipboard_key{'V'};
     std::filesystem::path save_directory;
+    // Updater: daily automatic check (after startup), last successful check in
+    // Unix seconds, proxy prefixes from the last verified manifest ('|'-separated),
+    // and the version that last ran (for the post-update notice).
+    bool update_auto_check{true};
+    long long update_last_check{};
+    std::wstring update_mirrors;
+    std::wstring last_run_version;
     static Preferences Load();
     void Save() const;
     static Preferences LoadFrom(const std::filesystem::path& path);

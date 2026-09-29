@@ -2,10 +2,13 @@ param(
     [string]$PayloadDir = '',
     [string]$OutputDir = '',
     [string]$IsccPath = '',
-    [ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')][string]$AppVersion = '0.1.0'
+    [string]$AppVersion = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+# CMakeLists.txt project(VERSION) is the single source of the release version.
+if (-not $AppVersion) { $AppVersion = ([regex]::Match((Get-Content -Raw (Join-Path $root 'CMakeLists.txt')), 'project\(LumaShot VERSION (\d+\.\d+\.\d+)')).Groups[1].Value }
+if ($AppVersion -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Invalid AppVersion '$AppVersion'" }
 if (-not $PayloadDir) { $PayloadDir = Join-Path $root 'dist/LumaShot-setup-payload' }
 if (-not $OutputDir) { $OutputDir = Join-Path $root 'dist' }
 $PayloadDir = (Resolve-Path -LiteralPath $PayloadDir).Path

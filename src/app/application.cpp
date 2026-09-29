@@ -26,10 +26,21 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <ctime>
+#include <cwctype>
 #include <utility>
 
 namespace lumashot {
 constexpr UINT kTray=WM_APP+1,kResult=WM_APP+2,kCancel=WM_APP+3,kElementsReady=WM_APP+4,kClientStart=WM_APP+5;
+// Updater: worker notifications (WPARAM = update::Updater::Notification, or
+// kUpdateCheckRequest from the settings worker), the daily-check timer and the
+// timer that retries a deferred prompt once no capture/recording is active.
+constexpr UINT kUpdate=WM_APP+120;constexpr WPARAM kUpdateCheckRequest=100;
+constexpr UINT_PTR kUpdateTimer=23,kUpdatePromptTimer=24;
+constexpr UINT kUpdateStartupDelay=90'000,kUpdateInterval=6*60*60*1000;
+constexpr long long kUpdateCheckPeriod=24*60*60;
+constexpr UINT kTrayCheckUpdate=40,kTrayCancelUpdate=41,kTrayInstallUpdate=42,kTrayDownloadUpdate=43;
+constexpr wchar_t kTrayTip[]=L"LumaShot · 截图与标注";
 static Point GlobalPoint(RECT r,LPARAM lp) {return {float(r.left+GET_X_LPARAM(lp)),float(r.top+GET_Y_LPARAM(lp))};}
 static void PlaceNumberBadge(Mark& mark,Point p){const auto b=Normalize(mark.a,mark.b);const float dx=p.x-(b.left+b.right)/2,dy=p.y-(b.top+b.bottom)/2;mark.a.x+=dx;mark.b.x+=dx;mark.a.y+=dy;mark.b.y+=dy;}
 static POINT NativePoint(Point p) {return {static_cast<LONG>(p.x),static_cast<LONG>(p.y)};}
@@ -65,6 +76,7 @@ static std::wstring ErrorText(const std::exception& error) {
 
 
 Application::~Application() {
+    if(update_version_dirty_)settings_writer_.Request(preferences_); // flushed by the writer's destructor
     if(ipc_client_){ipc_client_->Complete(1);ipc_client_.reset();}
     StopToolbarMotion();
     clipboard_panel_.reset();
@@ -73,6 +85,7 @@ Application::~Application() {
     magnifier_.Close();
     pins_.reset();
     worker_.request_stop();if(worker_.joinable())worker_.join();
+    updater_.reset(); // cancels an in-flight check/download and joins promptly
     if(main_) {NOTIFYICONDATAW tray{sizeof(tray)};tray.hWnd=main_;tray.uID=1;Shell_NotifyIconW(NIM_DELETE,&tray);}
     if(tray_icon_)DestroyIcon(tray_icon_);
     CommitText(true);
@@ -143,7 +156,7 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
     }
     taskbar_created_=RegisterWindowMessageW(L"TaskbarCreated");
     NOTIFYICONDATAW tray{sizeof(tray)};tray.hWnd=main_;tray.uID=1;tray.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP;
-    tray.uCallbackMessage=kTray;tray.hIcon=tray_icon_;wcscpy_s(tray.szTip,L"LumaShot · 截图与标注");
+    tray.uCallbackMessage=kTray;tray.hIcon=tray_icon_;wcscpy_s(tray.szTip,kTrayTip);
     if(!demo_&&!diagnostic_session_)CheckWin32(Shell_NotifyIconW(NIM_ADD,&tray)!=FALSE,"Add tray icon");
     clipboard_panel_->SetShortcut(preferences_.clipboard_modifiers,preferences_.clipboard_key);
     if(!demo_&&!diagnostic_session_)ConfigureHotkeyPolicy();
@@ -152,6 +165,7 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
     if(!demo_&&!diagnostic_session_){CleanupClipboardFiles(std::chrono::hours(24),CurrentClipboardFile(main_));recording::CleanupOrphanRecordingFolders(recording::RecordingTempRoot());}
     if(!demo_&&!diagnostic_session_){if(!ConfigureLoginStartup(preferences_.start_with_windows))Notice(L"无法更新开机自启动设置，请检查系统权限。");}
     if(!demo_&&!diagnostic_session_&&!pins_->EnableSession(PinSessionStore::DefaultDirectory()))Notice(L"部分贴图未能恢复。原始会话缓存保留在本机，可检查磁盘空间和权限。");
+    if(!demo_&&!diagnostic_session_)StartUpdater();
     if(capture_now||(demo_&&!ipc_demo_))PostMessageW(main_,LaunchCommandMessage,1,0);
     MSG msg{};
     for(;;) {
@@ -212,6 +226,9 @@ LRESULT CALLBACK Application::MainProc(HWND window,UINT message,WPARAM wp,LPARAM
         if(message==WM_APP+64){app->recording_finish_wait_=15;SetTimer(window,19,200,nullptr);return 0;}
         if(message==WM_TIMER&&wp==19){if(!app->recording_process_.Active()){KillTimer(window,19);app->Start();}else if(--app->recording_finish_wait_<=0)KillTimer(window,19);return 0;}
         if(message==WM_TIMER&&wp==20){app->RefreshHotkeys();return 0;}
+        if(message==kUpdate){app->UpdateNotification(wp);return 0;}
+        if(message==WM_TIMER&&wp==kUpdateTimer){SetTimer(window,kUpdateTimer,kUpdateInterval,nullptr);app->UpdateTimer();return 0;}
+        if(message==WM_TIMER&&wp==kUpdatePromptTimer){if(!app->UpdateBusy()){KillTimer(window,kUpdatePromptTimer);app->PromptUpdate();}return 0;}
         if(message==WM_HOTKEY||message==LaunchCommandMessage){
             if(app->ipc_client_)return 0;
             if(message==WM_HOTKEY&&app->hotkeys_initialized_)app->RefreshHotkeys();
@@ -239,7 +256,7 @@ LRESULT CALLBACK Application::MainProc(HWND window,UINT message,WPARAM wp,LPARAM
         if(message==WM_DESTROY){PostQuitMessage(0);return 0;}
         if(app->taskbar_created_ && message==app->taskbar_created_) {
             NOTIFYICONDATAW tray{sizeof(tray)};tray.hWnd=window;tray.uID=1;tray.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP;
-            tray.uCallbackMessage=kTray;tray.hIcon=app->tray_icon_;wcscpy_s(tray.szTip,L"LumaShot · 截图与标注");
+            tray.uCallbackMessage=kTray;tray.hIcon=app->tray_icon_;wcscpy_s(tray.szTip,kTrayTip);
             Shell_NotifyIconW(NIM_ADD,&tray);return 0;
         }
     } catch(const std::exception& e){if(app->ipc_client_){app->client_exit_=1;app->Cancel(false);}else if(!client_message)app->Notice(ErrorText(e));}
@@ -254,6 +271,17 @@ void Application::TrayMenu() {
     AppendMenuW(menu,MF_STRING|(preferences_.include_cursor?MF_CHECKED:0),3,L"包含鼠标指针");
     if(preferences_.clipboard_enabled)AppendMenuW(menu,MF_STRING,8,(preferences_.clipboard_key?L"剪贴板（"+ShortcutLabel(preferences_.clipboard_modifiers,preferences_.clipboard_key)+L"）":L"剪贴板").c_str());
     AppendHotkeyPolicyMenu(menu,preferences_);
+    if(updater_){
+        const auto phase=updater_->phase();
+        if(phase==update::Updater::Phase::Downloading){
+            const auto [received,total]=updater_->DownloadProgress();
+            AppendMenuW(menu,MF_STRING,kTrayCancelUpdate,(L"取消下载更新（"+std::to_wstring(total?received*100/total:0)+L"%）").c_str());
+        }
+        else if(phase!=update::Updater::Phase::Idle)AppendMenuW(menu,MF_STRING|MF_GRAYED,kTrayCheckUpdate,L"正在检查更新…");
+        else if(update_manifest_&&!update_ready_.empty())AppendMenuW(menu,MF_STRING,kTrayInstallUpdate,(L"安装更新 "+update::VersionText(update_manifest_->version)).c_str());
+        else if(update_manifest_)AppendMenuW(menu,MF_STRING,kTrayDownloadUpdate,(L"下载更新 "+update::VersionText(update_manifest_->version)+L"…").c_str());
+        else AppendMenuW(menu,MF_STRING,kTrayCheckUpdate,L"检查更新…");
+    }
     AppendMenuW(menu,MF_STRING,4,L"设置…");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,5,L"退出");
     POINT p{};GetCursorPos(&p);SetForegroundWindow(main_);
     const UINT choice=ui::TrackTrayMenu(main_,menu,p,preferences_.Dark());
@@ -265,11 +293,173 @@ void Application::TrayMenu() {
     if(choice==8&&clipboard_panel_)clipboard_panel_->Show();
     if(choice==GameHotkeyMenu||choice==DisableHotkeyMenu)ToggleHotkeyPolicy(choice);
     if(choice==4)Settings();
+    if(choice==kTrayCheckUpdate)CheckForUpdates(true);
+    if(choice==kTrayCancelUpdate&&updater_)updater_->Cancel();
+    if(choice==kTrayInstallUpdate)InstallUpdate();
+    if(choice==kTrayDownloadUpdate)StartUpdateDownload();
     if(choice==5){
         // Exiting closes the worker job and ends the recording, so ask first.
         if(recording_process_.Active()&&!ui::ShowThemedMessage(Owner(),preferences_.Dark(),L"正在录制",L"录制窗口仍在运行。退出 LumaShot 会立即结束录制，未导出的内容将丢失。",L"仍然退出",L"返回录制")){recording_process_.Show();return;}
         PostMessageW(main_,WM_CLOSE,0,0);
     }
+}
+namespace {
+std::wstring MegabytesText(std::uint64_t bytes){wchar_t text[32]{};swprintf_s(text,L"%.1f",double(bytes)/1048576.0);return text;}
+std::wstring UpdateHighlights(const std::wstring& notes){
+    // First non-empty line of the signed notes, shortened to fit the prompt.
+    size_t begin=0;
+    while(begin<notes.size()){
+        const auto end=notes.find(L'\n',begin);
+        auto line=notes.substr(begin,end==std::wstring::npos?std::wstring::npos:end-begin);
+        while(!line.empty()&&iswspace(line.back()))line.pop_back();
+        if(!line.empty())return line.size()>34?line.substr(0,33)+L"…":line;
+        if(end==std::wstring::npos)break;
+        begin=end+1;
+    }
+    return {};
+}
+}
+void Application::StartUpdater(){
+    updater_=std::make_unique<update::Updater>(main_,kUpdate);
+    const auto current=update::VersionText(update::CurrentVersion());
+    if(preferences_.last_run_version!=current){
+        const auto previous=preferences_.last_run_version;
+        // Persisted on the first update tick so cold start stays free of disk I/O.
+        preferences_.last_run_version=current;update_version_dirty_=true;
+        if(!previous.empty()){
+            NOTIFYICONDATAW info{sizeof(info)};info.hWnd=main_;info.uID=1;info.uFlags=NIF_INFO;info.dwInfoFlags=NIIF_INFO;
+            wcscpy_s(info.szInfoTitle,(L"LumaShot 已更新到 "+current).c_str());
+            wcscpy_s(info.szInfo,L"新版本已在后台运行。可在托盘菜单中随时检查更新。");
+            Shell_NotifyIconW(NIM_MODIFY,&info);
+        }
+    }
+    SetTimer(main_,kUpdateTimer,kUpdateStartupDelay,nullptr);
+}
+update::Endpoints Application::UpdateEndpoints() const{
+    std::vector<std::string> remembered;
+    size_t begin=0;const auto& text=preferences_.update_mirrors;
+    while(begin<text.size()){
+        const auto end=std::min(text.find(L'|',begin),text.size());
+        std::string mirror;bool ascii=true;
+        for(size_t i=begin;i<end;++i){if(text[i]>0x7e){ascii=false;break;}mirror.push_back(static_cast<char>(text[i]));}
+        if(ascii&&update::ValidMirror(mirror))remembered.push_back(std::move(mirror));
+        begin=end+1;
+    }
+    return update::ReleaseEndpoints(remembered);
+}
+bool Application::UpdateBusy() const{
+    return active_||pending_||settings_open_||ipc_client_||recording_process_.Active()||(longshot_&&longshot_->Active());
+}
+void Application::SetTrayTip(const std::wstring& text){
+    NOTIFYICONDATAW tray{sizeof(tray)};tray.hWnd=main_;tray.uID=1;tray.uFlags=NIF_TIP;
+    wcsncpy_s(tray.szTip,text.c_str(),_TRUNCATE);Shell_NotifyIconW(NIM_MODIFY,&tray);
+}
+void Application::UpdateTimer(){
+    if(std::exchange(update_version_dirty_,false))settings_writer_.Request(preferences_);
+    if(!updater_||!preferences_.update_auto_check||update_prompting_)return;
+    const long long now=static_cast<long long>(std::time(nullptr));
+    // A clock moved backwards also re-checks rather than waiting indefinitely.
+    if(preferences_.update_last_check>0&&now>=preferences_.update_last_check&&now-preferences_.update_last_check<kUpdateCheckPeriod)return;
+    CheckForUpdates(false);
+}
+void Application::CheckForUpdates(bool manual){
+    if(!updater_)return;
+    if(manual)update_manual_=true;
+    const auto phase=updater_->phase();
+    if(phase==update::Updater::Phase::Checking)return; // the running check reports to a manual request too
+    if(phase!=update::Updater::Phase::Idle){
+        if(manual&&phase==update::Updater::Phase::Downloading)Notice(L"正在下载更新，完成后会提示安装。");
+        update_manual_=false;return;
+    }
+    if(manual&&update_manifest_&&!update_ready_.empty()){update_manual_=false;PromptInstall();return;}
+    if(!updater_->Check(UpdateEndpoints()))update_manual_=false;
+}
+void Application::UpdateNotification(WPARAM code){
+    if(code==kUpdateCheckRequest){CheckForUpdates(true);return;}
+    if(!updater_)return;
+    using Notification=update::Updater::Notification;
+    switch(static_cast<Notification>(code)){
+    case Notification::CheckDone:{
+        auto result=updater_->TakeCheck();
+        const bool manual=std::exchange(update_manual_,false);
+        if(result.manifest){
+            // Only a verified manifest counts as a completed daily check.
+            preferences_.update_last_check=static_cast<long long>(std::time(nullptr));
+            if(!result.manifest->mirrors.empty()){
+                std::wstring joined;
+                for(const auto& mirror:result.manifest->mirrors){if(!joined.empty())joined+=L'|';joined.append(mirror.begin(),mirror.end());}
+                preferences_.update_mirrors=joined;
+            }
+            settings_writer_.Request(preferences_);
+        }
+        if(result.kind==update::CheckResult::Kind::Available){
+            const bool same=update_manifest_&&update_manifest_->version==result.manifest->version;
+            update_manifest_=result.manifest;update_sources_=std::move(result.sources);
+            if(!same)update_ready_.clear();
+            if(update_prompting_){} // an open prompt already covers it
+            else if(manual||!UpdateBusy())PromptUpdate();
+            else SetTimer(main_,kUpdatePromptTimer,30'000,nullptr);
+        }
+        else if(result.kind==update::CheckResult::Kind::UpToDate){
+            update_manifest_.reset();update_ready_.clear();
+            if(manual)Notice(L"LumaShot 已是最新版本（"+update::VersionText(update::CurrentVersion())+L"）。");
+        }
+        else if(result.kind==update::CheckResult::Kind::Failed&&manual){
+            if(result.rejected)Notice(L"收到的更新信息未通过签名校验，已忽略。请稍后重试。");
+            else Notice(L"无法连接更新服务器（已尝试 "+std::to_wstring(result.attempted)+L" 个下载源）。请检查网络或代理设置后重试。");
+        }
+        break;}
+    case Notification::Progress:{
+        if(updater_->phase()!=update::Updater::Phase::Downloading)break;
+        const auto [received,total]=updater_->DownloadProgress();
+        SetTrayTip(L"LumaShot · 正在下载更新 "+std::to_wstring(total?received*100/total:0)+L"%");
+        break;}
+    case Notification::DownloadDone:{
+        auto result=updater_->TakeDownload();
+        SetTrayTip(kTrayTip);
+        if(result.kind==update::DownloadResult::Kind::Ok){update_ready_=result.file;PromptInstall();}
+        else if(result.kind==update::DownloadResult::Kind::Disk)Notice(L"无法保存更新文件，请检查磁盘空间和权限后重试。");
+        else if(result.kind==update::DownloadResult::Kind::Failed)
+            Notice(result.corrupt?L"下载的安装包未通过完整性校验，已丢弃。请稍后在托盘菜单中重试。":L"更新下载失败：所有下载源都不可用。请稍后在托盘菜单中重试。");
+        break;}
+    case Notification::VerifyDone:{
+        if(!updater_->TakeVerify()){update_ready_.clear();Notice(L"更新文件校验失败，已放弃安装。请重新检查更新。");break;}
+        if(recording_process_.Active()){Notice(L"请先结束录制，再安装更新。");break;}
+        // The installer closes LumaShot through WM_CLOSE (pins are preserved) and restarts it.
+        if(pins_)pins_->FlushSession();
+        if(!update::LaunchInstaller(update_ready_))Notice(L"无法启动更新安装程序。可以从 GitHub Releases 下载安装包手动更新。");
+        break;}
+    }
+}
+void Application::PromptUpdate(){
+    if(!update_manifest_||!updater_||updater_->phase()!=update::Updater::Phase::Idle||update_prompting_)return;
+    const auto manifest=*update_manifest_;
+    if(!update_ready_.empty()){PromptInstall();return;}
+    const auto highlights=UpdateHighlights(manifest.notes);
+    const auto body=L"LumaShot "+update::VersionText(manifest.version)+L" 已发布（当前 "+update::VersionText(update::CurrentVersion())+L"）。\n"
+        +(highlights.empty()?std::wstring{}:highlights+L"\n")+L"下载约 "+MegabytesText(manifest.size)+L" MB，校验通过后安装并自动重启 LumaShot。";
+    update_prompting_=true;
+    const bool accepted=ui::ShowThemedMessage(Owner(),preferences_.Dark(),L"发现新版本",body,L"下载并安装",L"稍后");
+    update_prompting_=false;
+    if(accepted)StartUpdateDownload();
+}
+void Application::StartUpdateDownload(){
+    if(!updater_||!update_manifest_)return;
+    if(updater_->Download(UpdateEndpoints(),*update_manifest_,update_sources_))SetTrayTip(L"LumaShot · 正在下载更新 0%");
+}
+void Application::PromptInstall(){
+    if(!update_manifest_||update_ready_.empty()||update_prompting_)return;
+    const auto body=L"LumaShot "+update::VersionText(update_manifest_->version)+L" 已下载，并通过签名与完整性校验。\n安装时会关闭 LumaShot，完成后自动重新启动；桌面贴图会保留。";
+    update_prompting_=true;
+    const bool accepted=ui::ShowThemedMessage(Owner(),preferences_.Dark(),L"更新已就绪",body,L"立即安装",L"稍后");
+    update_prompting_=false;
+    if(accepted)InstallUpdate();
+}
+void Application::InstallUpdate(){
+    if(!updater_||!update_manifest_||update_ready_.empty())return;
+    if(recording_process_.Active()){Notice(L"请先结束录制，再安装更新。");return;}
+    // Re-verify off the UI thread right before launching the installer.
+    updater_->Verify(update_ready_,*update_manifest_);
 }
 void Application::Settings() {
     if(settings_open_)return;
@@ -281,6 +471,8 @@ void Application::Settings() {
         auto next=candidate;next.tools=preferences_.tools;next.save_directory=preferences_.save_directory;
         // These tray-only policies may have changed while the settings worker was open.
         next.hotkeys_disabled=preferences_.hotkeys_disabled;next.disable_hotkeys_in_game=preferences_.disable_hotkeys_in_game;
+        // Update bookkeeping is host-owned and may change while the dialog is open.
+        next.update_last_check=preferences_.update_last_check;next.update_mirrors=preferences_.update_mirrors;next.last_run_version=preferences_.last_run_version;
         RefreshHotkeys();
         const auto before=EffectiveHotkeys(preferences_,hotkeys_suspended_),after=EffectiveHotkeys(next,hotkeys_suspended_);
         if(!UniqueShortcuts(next)||!ApplyShortcuts(main_,before,after))return false;
@@ -290,7 +482,9 @@ void Application::Settings() {
         settings_writer_.Request(next);
         if(!settings_writer_.Flush()){settings_writer_.DropPending();restoreClipboard();if(!demo_&&!diagnostic_session_)ConfigureLoginStartup(preferences_.start_with_windows);ApplyShortcuts(main_,after,before);return false;}
         preferences_=std::move(next);return true;
-    },[this](std::span<const HANDLE> events){return WaitForWork(events);}))return;
+    },[this](std::span<const HANDLE> events){return WaitForWork(events);},[this]{PostMessageW(main_,kUpdate,kUpdateCheckRequest,0);}))return;
+    // Re-evaluate soon in case automatic checks were just turned on.
+    if(updater_&&preferences_.update_auto_check)SetTimer(main_,kUpdateTimer,kUpdateStartupDelay,nullptr);
     if(clipboard_panel_){
         // Disable first so a persistence change does not rebuild a store that is going away.
         if(!preferences_.clipboard_enabled)clipboard_panel_->Enable(false,preferences_.Dark());
@@ -1135,7 +1329,6 @@ LRESULT CALLBACK Application::OverlayProc(HWND window,UINT message,WPARAM wp,LPA
 }
 
 }
-
 
 
 

@@ -119,6 +119,22 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
     pins_->dark_theme=[this]{return preferences_.Dark();};
     pins_->clipboard_format=[this]{return preferences_.paste_as_file?preferences_.paste_file_format:-1;};
     pins_->annotate=[this](uint64_t id,std::shared_ptr<const Frame> image,Document document,RECT bounds){return AnnotatePin(id,std::move(image),std::move(document),bounds);};
+    {
+        longshot::Host host;
+        host.dark=[this]{return preferences_.Dark();};
+        host.clipboard_format=[this]{return preferences_.paste_as_file?preferences_.paste_file_format:-1;};
+        host.save_directory=[this]{return preferences_.save_directory;};
+        host.remember_directory=[this](const std::filesystem::path& folder){
+            preferences_.save_directory=folder;
+            if(!demo_&&!diagnostic_session_){settings_writer_.Request(preferences_);settings_writer_.Flush();}
+        };
+        host.pin=[this](Frame image,POINT position,bool recognize){
+            Frame ocr=image;pins_->Create(std::move(image),std::move(ocr),position,std::nullopt,{},recognize&&ocr_available_);
+        };
+        host.ocr_available=[this]{return ocr_available_;};
+        host.recapture=[this]{PostMessageW(main_,LaunchCommandMessage,1,0);};
+        longshot_=std::make_unique<LongCaptureManager>(std::move(host));
+    }
     taskbar_created_=RegisterWindowMessageW(L"TaskbarCreated");
     NOTIFYICONDATAW tray{sizeof(tray)};tray.hWnd=main_;tray.uID=1;tray.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP;
     tray.uCallbackMessage=kTray;tray.hIcon=tray_icon_;wcscpy_s(tray.szTip,L"LumaShot · 截图与标注");
@@ -306,6 +322,7 @@ void Application::UpdatePinEditRegion(){
 void Application::Start() {
 
     if(active_||pending_)return;
+    if(longshot_&&longshot_->Active())return; // one live capture at a time
     capture_started_=Diagnostics::Now();
     element_scanner_.Cancel();element_windows_.clear();element_regions_.clear();
     if(demo_) {
@@ -522,7 +539,7 @@ void Application::PointerDown(View& view,Point point) {
     if(state_.selected) {
         const int command=ui::HitTest(ToolbarControls(state_,document_),point);
         if(command==46||command==47||command==56||command==64||command==65){state_.property_drag=command;SetCapture(view.window);SetToolbarSlider(state_,command,point);ApplySelectedProperties(true);Invalidate();return;}
-        if(command>=0){toolbar_pressed_=command<17?command:-1;SyncToolbarMotion();Command(command);return;}
+        if(command>=0){toolbar_pressed_=command<int(ui::ToolbarSlots)?command:-1;SyncToolbarMotion();Command(command);return;}
         if(Contains(state_.toolbar.bounds,point))return;
     }
     if(state_.selected&&state_.tool==Tool::Pen&&state_.pen_polyline){
@@ -733,7 +750,7 @@ void Application::PointerUp(View& view,Point point) {
     if(editing_handle){const auto cursor=ui::SelectionEditCursor(document_,state_,point,GetDpiForWindow(view.window));SetCursor(cursor?cursor:LoadCursorW(nullptr,IDC_ARROW));}
 }
 void Application::Command(int id) {
-    if(!client_output_.empty()&&(id==13||id==15||id==16)){Notice(L"聊天截图模式：请点击完成，将图片插入聊天。");return;}
+    if(!client_output_.empty()&&(id==13||id==15||id==16||id==17)){Notice(L"聊天截图模式：请点击完成，将图片插入聊天。");return;}
     if(!state_.busy&&!line_vertices_.empty()){
         if(id==7){UndoPolylinePoint();return;}
         if(id==8)return;
@@ -766,6 +783,23 @@ void Application::Command(int id) {
         // Launch before releasing the screenshot. Existing workers are only raised.
         if(recording_process_.Start(false,preferences_.Dark(),region))Cancel(false);
         else {ui::ShowThemedMessage(Owner(),preferences_.Dark(),L"无法打开录制",L"无法打开录制窗口。截图仍保留，请重试或检查安装文件。");Invalidate();}
+        return;
+    }
+    if(id==17){
+        if(pin_edit_id_||pending_||!active_||!frame_||!state_.selected||!longshot_)return;
+        const auto b=state_.selection;
+        RECT requested{LONG(std::floor(b.left)),LONG(std::floor(b.top)),LONG(std::ceil(b.right)),LONG(std::ceil(b.bottom))},region{};
+        if(!IntersectRect(&region,&requested,&frame_->bounds))return;
+        // One monitor: one DPI and one window under the region to scroll.
+        MONITORINFO monitor{sizeof(monitor)};const POINT center{(region.left+region.right)/2,(region.top+region.bottom)/2};
+        GetMonitorInfoW(MonitorFromPoint(center,MONITOR_DEFAULTTONEAREST),&monitor);
+        if(!IntersectRect(&region,&region,&monitor.rcMonitor)||region.right-region.left<32||region.bottom-region.top<32){Notice(L"选区太小，无法进行长截图。");Invalidate();return;}
+        if(longshot_->Active()){Notice(L"已有一个长截图正在进行。");Invalidate();return;}
+        CommitText();if(state_.picker.open)ClosePicker(true);state_.property_drag=-1;ReleaseCapture();state_.dropdown.Close();
+        // The frozen overlay closes so the live page can scroll; the session
+        // waits for DWM before its first capture.
+        Cancel(false);
+        try{longshot_->Start(region);}catch(const std::exception& e){Notice(ErrorText(e));}
         return;
     }
     if(id>=20&&(state_.PropertyTool()==Tool::Select||(state_.PropertyTool()==Tool::Mosaic&&(id<24||id==28))))return;
@@ -950,6 +984,7 @@ void Application::Key(View& view,WPARAM key) {
     if(state_.selected) {
         if(key=='V')Command(0);if(key=='R')Command(1);if(key=='E')Command(2);if(key=='A')Command(3);
         if(key=='P')Command(4);if(key=='T')Command(5);if(key=='M')Command(6);
+        if(key=='L')Command(17);
     }
 }
 

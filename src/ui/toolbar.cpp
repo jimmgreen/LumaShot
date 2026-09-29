@@ -64,9 +64,10 @@ std::vector<ui::Control> PropertyControls(Tool tool,NumberCombo combo,Box area,f
 Box ToolbarLayout::Button(int id)const {
     const float s=scale;
     if((id>=1&&id<=6)||id==14){const int index=id==14?6:id-1;const float w=(tools.right-tools.left)/columns;const float x=tools.left+(index%columns)*w,y=tools.top+(index/columns)*36*s;return {x,y,x+w-4*s,y+32*s};}
-    if((id==15&&!ocr_available)||(id==16&&!recording_available))return {};
-    constexpr std::array<int,10> order{0,7,8,9,10,13,15,16,11,12};
-    const auto slots=[&](int action){return action==15?(ocr_available?2:0):action==16?(recording_available?1:0):1;};
+    if((id==15&&!ocr_available)||((id==16||id==17)&&!recording_available))return {};
+    // 17 = long capture; shares the recording availability (hidden while editing a pin).
+    constexpr std::array<int,11> order{0,7,8,9,10,13,15,17,16,11,12};
+    const auto slots=[&](int action){return action==15?(ocr_available?2:0):(action==16||action==17)?(recording_available?1:0):1;};
     int total=0,slot=0;bool found=false;
     for(int action:order){total+=slots(action);if(action==id)found=true;else if(!found)slot+=slots(action);}
     if(!found)return {};
@@ -105,7 +106,7 @@ std::vector<ui::Control> ToolbarLayout::Controls(Tool tool)const {
     using ui::Kind;std::vector<ui::Control> result;
     ui::Control surface;surface.kind=Kind::Surface;surface.bounds=bounds;result.push_back(surface);
     constexpr std::array<LPCWSTR,7> names{L"",L"矩形",L"圆形",L"箭头",L"铅笔",L"文字",L"马赛克"};
-    for(int i=0;i<17;++i){if((i==15&&!ocr_available)||(i==16&&!recording_available))continue;ui::Control c;c.id=i;c.kind=Kind::Button;c.bounds=Button(i);c.text=i==15?L"OCR":i==14?L"序号":(i<=6?names[i]:L"");c.icon=i==15?-1:i;result.push_back(c);}
+    for(int i=0;i<18;++i){if((i==15&&!ocr_available)||((i==16||i==17)&&!recording_available))continue;ui::Control c;c.id=i;c.kind=Kind::Button;c.bounds=Button(i);c.text=i==15?L"OCR":i==14?L"序号":(i<=6?names[i]:L"");c.icon=i==15?-1:i;result.push_back(c);}
     if(tool!=Tool::Select){auto properties=PropertyControls(tool,number_combo,colors,scale);result.insert(result.end(),properties.begin(),properties.end());}
     return result;
 }
@@ -124,6 +125,7 @@ std::vector<ui::Control> ToolbarControls(const ViewState& state,const Document& 
     for(auto& c:controls) {
         c.enabled=c.enabled&&!state.busy;
         if(c.id==16)c.enabled=c.enabled&&state.toolbar.recording_available&&state.selected&&state.selection.right-state.selection.left>=8&&state.selection.bottom-state.selection.top>=8;
+        if(c.id==17)c.enabled=c.enabled&&state.toolbar.recording_available&&state.selected&&state.selection.right-state.selection.left>=32&&state.selection.bottom-state.selection.top>=32;
         if(c.id>=20)c.enabled=c.enabled&&state.PropertyTool()!=Tool::Select&&c.bounds.bottom<=state.toolbar.bounds.bottom-8*state.toolbar.scale;
         if(c.id>=0&&c.id<=6)c.selected=c.id==static_cast<int>(state.tool);
         if(c.id==14)c.selected=state.tool==Tool::Number;

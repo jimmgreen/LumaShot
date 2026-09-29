@@ -3,11 +3,9 @@
 
 namespace lumashot {
 
-Frame CaptureDesktop() {
-    const LONG x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    const LONG y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    Frame result = MakeFrame({x, y, x + GetSystemMetrics(SM_CXVIRTUALSCREEN),
-        y + GetSystemMetrics(SM_CYVIRTUALSCREEN)});
+Frame CaptureRegion(RECT region) {
+    Frame result = MakeFrame(region);
+    const LONG x = region.left, y = region.top;
     DibSurface surface(result.Width(), result.Height());
     HDC screen = GetDC(nullptr);
     CheckWin32(screen != nullptr, "GetDC desktop");
@@ -21,6 +19,13 @@ Frame CaptureDesktop() {
     std::transform(surface.Pixels(), surface.Pixels() + result.pixels.size(),
         result.pixels.begin(), [](uint32_t pixel) { return pixel | 0xff000000; });
     return result;
+}
+
+Frame CaptureDesktop() {
+    const LONG x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const LONG y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    return CaptureRegion({x, y, x + GetSystemMetrics(SM_CXVIRTUALSCREEN),
+        y + GetSystemMetrics(SM_CYVIRTUALSCREEN)});
 }
 
 }

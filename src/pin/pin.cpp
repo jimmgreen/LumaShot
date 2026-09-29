@@ -80,6 +80,12 @@ void PinManager::Create(Frame image,Frame ocr_image,POINT position,std::optional
     if(!p->window){pins_.erase(id);CheckWin32(false,"Create pinned image");}
     p->dpi=float(GetDpiForWindow(p->window));
     if(restored)p->zoom=p->zoom_from=p->zoom_goal=PinZoomGoal(restored->zoom,0,p->image->Width(),p->image->Height(),p->dpi,p->style);
+    else{
+        // Tall images (long captures) start fitted to 90% of the work area instead of spilling off screen.
+        MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromPoint(position,MONITOR_DEFAULTTONEAREST),&monitor);
+        const int work=monitor.rcWork.bottom-monitor.rcWork.top;
+        if(work>0&&p->image->Height()>work)p->zoom=p->zoom_from=p->zoom_goal=PinZoomGoal(std::min(1.f,float(work)*.9f/float(p->image->Height())),0,p->image->Width(),p->image->Height(),p->dpi,p->style);
+    }
     const auto paper=MakePaperLayout(std::max(1,int(std::lround(p->image->Width()*p->zoom))),std::max(1,int(std::lround(p->image->Height()*p->zoom))),p->dpi,p->style);
     ApplyPaper(*p,{float(position.x-paper.inset-paper.shadow),float(position.y-paper.inset-paper.shadow)});
     if(restored){

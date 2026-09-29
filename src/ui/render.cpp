@@ -214,6 +214,10 @@ void Renderer::Icon(int index, Box rect, uint32_t color) {
         target_->DrawLine({cx+x1*unit,cy+y1*unit},{cx+x2*unit,cy+y2*unit},brush_.Get(),1.65f*unit);
     };
     switch(index) {
+    case 17:
+        // Long capture: a page continuing below the frame, with a downward arrow.
+        line(-7,-9,7,-9);line(-7,-9,-7,1);line(7,-9,7,1);line(-7,4,-7,6);line(7,4,7,6);
+        line(0,-5,0,9);line(-4,5,0,9);line(4,5,0,9);break;
     case 16:
         target_->DrawRoundedRectangle(D2D1::RoundedRect({cx-9*unit,cy-6*unit,cx+3*unit,cy+6*unit},2*unit,2*unit),brush_.Get(),1.65f*unit);
         line(3,-3,9,-6);line(9,-6,9,6);line(9,6,3,3);

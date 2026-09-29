@@ -11,6 +11,7 @@
 #include "ui/render.h"
 #include "ui/magnifier.h"
 #include "pin/pin.h"
+#include "longshot/long_capture.h"
 #include "model/selection.h"
 #include "ui/text_editor.h"
 #include <mutex>
@@ -139,6 +140,8 @@ private:
     bool settings_open_{};int recording_finish_wait_{};
     std::shared_ptr<Frame> frame_,acrylic_,cursor_patch_;
     std::unique_ptr<PinManager> pins_;
+    // Declared after pins_: sessions and viewers go away before the pins they may create.
+    std::unique_ptr<LongCaptureManager> longshot_;
     std::vector<std::unique_ptr<View>> views_;
     std::vector<RECT> monitors_;
     std::vector<RECT> windows_;

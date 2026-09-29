@@ -10,7 +10,7 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
     paint.measure_text=[this](const std::wstring& text,float size){return MeasureText(text,size);};
     paint.icon=[this,&state](int id,Box b,uint32_t color){
         const auto& motion=state.toolbar_visual;
-        if(motion.ready&&motion.effects&&id>=0&&id<17){
+        if(motion.ready&&motion.effects&&id>=0&&id<int(ui::ToolbarSlots)){
             const float hot=motion.hover[size_t(id)],down=motion.press[size_t(id)],zoom=1+.06f*hot-.1f*down;
             const float cx=(b.left+b.right)/2,cy=(b.top+b.bottom)/2+(-1.5f*hot+.8f*down)*state.toolbar.scale;
             const float w=(b.right-b.left)*zoom/2,h=(b.bottom-b.top)*zoom/2;b={cx-w,cy-h,cx+w,cy+h};
@@ -47,7 +47,7 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
     }
     for(size_t i=1;i<controls.size();++i){
         auto c=controls[i];int hovered=state.hover;
-        if(motion.ready&&c.id>=0&&c.id<17&&c.kind==ui::Kind::Button){
+        if(motion.ready&&c.id>=0&&c.id<int(ui::ToolbarSlots)&&c.kind==ui::Kind::Button){
             const float hot=motion.hover[size_t(c.id)],down=motion.press[size_t(c.id)];
             const auto r=D2D1::RoundedRect(D2D1::RectF(c.bounds.left,c.bounds.top,c.bounds.right,c.bounds.bottom),theme.Radius(),theme.Radius());
             if(c.enabled&&!c.primary){
@@ -78,8 +78,8 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
         }
         return;
     }
-    if(state.property_drag<0&&(state.hover==0||(state.hover>=7&&state.hover<14)||state.hover==15||state.hover==16||state.hover==28||state.hover==70)) {
-        constexpr std::array<LPCWSTR,17> names{L"选择 / 移动 V",L"",L"",L"",L"",L"",L"",L"撤销 Ctrl+Z",L"重做 Ctrl+Y",L"保存 Ctrl+S",L"复制 Ctrl+C",L"取消 Esc",L"完成 Enter",L"置顶贴图",L"",L"识别文字 / 表格",L"录制"};
+    if(state.property_drag<0&&(state.hover==0||(state.hover>=7&&state.hover<14)||state.hover==15||state.hover==16||state.hover==17||state.hover==28||state.hover==70)) {
+        constexpr std::array<LPCWSTR,ui::ToolbarSlots> names{L"选择 / 移动 V",L"",L"",L"",L"",L"",L"",L"撤销 Ctrl+Z",L"重做 Ctrl+Y",L"保存 Ctrl+S",L"复制 Ctrl+C",L"取消 Esc",L"完成 Enter",L"置顶贴图",L"",L"识别文字 / 表格",L"录制",L"长截图 L"};
         const float s=state.toolbar.scale;const Box anchor=(state.hover==28||state.hover==70)?state.toolbar.Property(state.hover):state.toolbar.Button(state.hover);
         const RECT monitor=monitor_.right>monitor_.left?monitor_:frame.bounds;
         ui::DrawTooltip(paint,{s,state.dark},(state.hover==28||state.hover==70)?L"自定义颜色":names[state.hover],anchor,

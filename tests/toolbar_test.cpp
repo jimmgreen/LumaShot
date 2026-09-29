@@ -29,7 +29,8 @@ int main(int argc,char** argv) {
             bool valid=t.bounds.top>=0&&t.bounds.bottom<=1080&&t.bounds.left>=-width&&t.bounds.right<=0;
             const auto controls=t.Controls(tool);
             const auto pin=t.Button(13),ocr=t.Button(15),record=t.Button(16),cancel=t.Button(11);
-            valid=valid&&pin.right<ocr.left&&ocr.right<record.left&&record.right<cancel.left&&record.right-record.left>=18*t.scale&&std::abs((record.right-record.left)-(cancel.right-cancel.left))<.01f&&ocr.right-ocr.left>=38*t.scale;
+            const auto longshot=t.Button(17);
+            valid=valid&&pin.right<ocr.left&&ocr.right<longshot.left&&longshot.right<record.left&&std::abs((longshot.right-longshot.left)-(record.right-record.left))<.01f&&record.right<cancel.left&&record.right-record.left>=18*t.scale&&std::abs((record.right-record.left)-(cancel.right-cancel.left))<.01f&&ocr.right-ocr.left>=38*t.scale;
             const auto entry=std::find_if(controls.begin(),controls.end(),[](const ui::Control& c){return c.id==15;});
             valid=valid&&entry!=controls.end()&&entry->text==L"OCR"&&entry->icon==-1;
             for(const auto& c:controls){const auto p=c.bounds;valid=valid&&Contains(t.bounds,{p.left,p.top})&&Contains(t.bounds,{p.right,p.bottom});if(c.Interactive())valid=valid&&t.Hit({(p.left+p.right)/2,(p.top+p.bottom)/2},tool)==c.id;}
@@ -52,8 +53,11 @@ int main(int argc,char** argv) {
             const auto icon=std::find_if(controls.begin(),controls.end(),[](const auto& c){return c.id==16;});
             expect(icon!=controls.end()&&icon->kind==ui::Kind::Button&&icon->icon==16&&icon->text.empty(),"record entry is one icon button without text or dropdown");
             expect(!OpenToolbarDropdown(record,16,{-800,0,0,600}),"record entry has no video/GIF dropdown");
+            const auto longshot=std::find_if(controls.begin(),controls.end(),[](const auto& c){return c.id==17;});
+            expect(longshot!=controls.end()&&longshot->kind==ui::Kind::Button&&longshot->icon==17&&longshot->text.empty(),"long capture entry is one icon button");
             record.toolbar.recording_available=false;
             const auto pinned=record.toolbar.Controls(Tool::Select);expect(std::none_of(pinned.begin(),pinned.end(),[](const auto& c){return c.id==16;}),"pinned-image annotation omits recording entry");
+            expect(std::none_of(pinned.begin(),pinned.end(),[](const auto& c){return c.id==17;}),"pinned-image annotation omits long capture entry");
         }
         ViewState state;state.selected=true;state.tool=Tool::Text;
         state.toolbar=PlaceToolbar({100,100,1100,500},{0,0,1280,800},1,1,Tool::Text);

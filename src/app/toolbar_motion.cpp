@@ -9,9 +9,9 @@ void Application::StopToolbarMotion(){
 }
 void Application::SyncToolbarMotion(uint64_t now){
     if(!active_||!state_.selected||state_.busy){StopToolbarMotion();return;}
-    const auto controls=ToolbarControls(state_,document_);std::array<Box,17> boxes{};
+    const auto controls=ToolbarControls(state_,document_);std::array<Box,ui::ToolbarSlots> boxes{};
     const auto origin=state_.toolbar.bounds;
-    for(const auto& c:controls)if(c.id>=0&&c.id<17&&c.Interactive())
+    for(const auto& c:controls)if(c.id>=0&&c.id<int(ui::ToolbarSlots)&&c.Interactive())
         boxes[size_t(c.id)]={c.bounds.left-origin.left,c.bounds.top-origin.top,c.bounds.right-origin.left,c.bounds.bottom-origin.top};
     const int selected=state_.tool==Tool::Number?14:static_cast<int>(state_.tool);
     const bool obscured=state_.picker.open||state_.dropdown.Open();

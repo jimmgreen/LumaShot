@@ -10,9 +10,9 @@
 namespace lumashot {
 struct ToolbarMotionTest {
     static void Check(HRESULT hr){if(FAILED(hr))throw std::runtime_error("Toolbar preview render failed");}
-    static std::array<Box,17> Boxes(const ViewState& state){
-        std::array<Box,17> boxes{};const auto origin=state.toolbar.bounds;
-        for(const auto& c:ToolbarControls(state,Document{}))if(c.id>=0&&c.id<17&&c.Interactive())
+    static std::array<Box,ui::ToolbarSlots> Boxes(const ViewState& state){
+        std::array<Box,ui::ToolbarSlots> boxes{};const auto origin=state.toolbar.bounds;
+        for(const auto& c:ToolbarControls(state,Document{}))if(c.id>=0&&c.id<int(ui::ToolbarSlots)&&c.Interactive())
             boxes[size_t(c.id)]={c.bounds.left-origin.left,c.bounds.top-origin.top,c.bounds.right-origin.left,c.bounds.bottom-origin.top};
         return boxes;
     }
@@ -76,7 +76,7 @@ struct ToolbarMotionTest {
             auto resized=boxes;for(auto& b:resized){b.left*=.8f;b.right*=.8f;}
             motion.Update(resized,4,-1,-1,610,true);expect(motion.Sample(610).indicator==resized[4],"DPI or layout change rebases without flying across the screen");
             bool stable=boxes==original;
-            for(const auto& c:ToolbarControls(s,Document{}))if(c.id>=0&&c.id<17&&c.Interactive())
+            for(const auto& c:ToolbarControls(s,Document{}))if(c.id>=0&&c.id<int(ui::ToolbarSlots)&&c.Interactive())
                 stable&=ui::HitTest(ToolbarControls(s,Document{}),{(c.bounds.left+c.bounds.right)/2,(c.bounds.top+c.bounds.bottom)/2})==c.id;
             expect(stable,"visual animation never mutates the original click targets");
             motion.Reset();expect(!motion.Active(700)&&!motion.Sample(700).ready,"reset clears every visual state");

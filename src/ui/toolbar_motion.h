@@ -5,9 +5,11 @@
 #include <cmath>
 
 namespace lumashot::ui {
+// Toolbar action ids 0..16 plus 17 (long capture).
+inline constexpr size_t ToolbarSlots=18;
 struct ToolbarMotionFrame {
     Box indicator{};
-    std::array<float,17> hover{},press{};
+    std::array<float,ToolbarSlots> hover{},press{};
     bool ready{},effects{};
 };
 // No HWND, wall clock or hit-test geometry is owned here. All rectangles are
@@ -26,8 +28,8 @@ class ToolbarMotion {
         }
         bool Active(uint64_t now)const{return from!=goal&&now<start+duration;}
     };
-    std::array<Box,17> boxes_{};
-    std::array<Fade,17> hover_{},press_{};
+    std::array<Box,ToolbarSlots> boxes_{};
+    std::array<Fade,ToolbarSlots> hover_{},press_{};
     Box from_{},span_{},goal_{};uint64_t start_{};
     int selected_{-1};bool ready_{},moving_{},effects_{};
     static bool Valid(Box b){return b.right>b.left&&b.bottom>b.top;}
@@ -44,12 +46,12 @@ class ToolbarMotion {
     }
 public:
     void Reset(){*this=ToolbarMotion{};}
-    void Update(const std::array<Box,17>& boxes,int selected,int hovered,int pressed,uint64_t now,bool effects){
+    void Update(const std::array<Box,ToolbarSlots>& boxes,int selected,int hovered,int pressed,uint64_t now,bool effects){
         bool relayout=!ready_;
         for(size_t i=0;i<boxes.size();++i)relayout|=!Near(boxes_[i],boxes[i]);
         const Box current=Indicator(now);const int previous=selected_;
         boxes_=boxes;effects_=effects;
-        ready_=selected>=0&&selected<17&&Valid(boxes[size_t(selected)]);
+        ready_=selected>=0&&selected<int(ToolbarSlots)&&Valid(boxes[size_t(selected)]);
         if(!ready_){Reset();return;}
         const Box next=boxes[size_t(selected)];
         if(relayout||!effects){from_=span_=goal_=next;moving_=false;}

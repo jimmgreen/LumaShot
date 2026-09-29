@@ -1,4 +1,5 @@
 #include "longshot/viewer.h"
+#include "ui/themed_message.h"
 #include "app/resource.h"
 #include "export/png.h"
 #include <stdexcept>
@@ -20,7 +21,10 @@ constexpr wchar_t kClass[] = L"LumaShot.LongCaptureViewer";
 constexpr int kTile = 2048;
 constexpr float kTitle = 44, kActions = 60, kSide = 252, kMargin = 20;
 enum Id { Minimize = 1, MaximizeId = 2, CloseId = 3, FitId = 30, ActualId = 31, RecaptureId = 40, OcrId = 41, PinId = 42,
-    CopyId = 43, SaveId = 44, ResetCrop = 50, SeamsId = 60, ScrollbarId = 61, TrimId = 62 };
+    CopyId = 43, SaveId = 44, AnnotateId = 45, ResetCrop = 50, SeamsId = 60, ScrollbarId = 61, TrimId = 62,
+    UndoMarks = 63, RedoMarks = 64, ClearMarks = 65 };
+// Side panel: options header + three toggles + annotation block + export size.
+constexpr float kOptionsHeight = 36 + 3 * 34 + 76 + 58;
 
 Frame Extract(const Frame& image, RECT crop) {
     const int w = crop.right - crop.left, h = crop.bottom - crop.top;
@@ -136,7 +140,7 @@ Viewer::Layout Viewer::Compute() const {
     l.actions = {0, h - kActions * s, w, h};
     l.side = {w - kSide * s, l.title.bottom, w, l.actions.top};
     l.main = {0, l.title.bottom, l.side.left, l.actions.top};
-    const float options = (36 + 3 * 34 + 58) * s;
+    const float options = kOptionsHeight * s;
     l.minimap = {l.side.left + 16 * s, l.side.top + 52 * s, l.side.right - 16 * s, std::max(l.side.top + 140 * s, l.side.bottom - options - 12 * s)};
     const float iw = static_cast<float>(image_->Width()), ih = static_cast<float>(image_->Height());
     float sh = l.minimap.bottom - l.minimap.top - 20 * s;
@@ -204,13 +208,23 @@ std::vector<Viewer::Item> Viewer::Items() const {
     right(CopyId, 84);
     right(PinId, 108);
     if (host_.ocr_available && host_.ocr_available()) right(OcrId, 108);
-    right(RecaptureId, 108);
+    if (host_.annotate) right(AnnotateId, 84);
+    right(RecaptureId, 104);
     if (crop_top_ > 0 || crop_bottom_ < image_->Height())
         items.push_back({ResetCrop, {l.side.right - 16 * s - 52 * s, l.side.top + 14 * s, l.side.right - 16 * s, l.side.top + 38 * s}});
     float y = l.minimap.bottom + 12 * s + 30 * s;
     for (int id : {SeamsId, ScrollbarId, TrimId}) {
         items.push_back({id, {l.side.left + 12 * s, y, l.side.right - 12 * s, y + 32 * s}});
         y += 34 * s;
+    }
+    if (host_.annotate) {
+        const float by = y + 36 * s, left = l.side.left + 16 * s, gap = 6 * s;
+        const float bw3 = (l.side.right - 16 * s - left - 2 * gap) / 3;
+        int index = 0;
+        for (int id : {UndoMarks, RedoMarks, ClearMarks}) {
+            const float bx = left + static_cast<float>(index++) * (bw3 + gap);
+            items.push_back({id, {bx, by, bx + bw3, by + 30 * s}});
+        }
     }
     return items;
 }
@@ -259,6 +273,31 @@ void Viewer::Paint() {
     EndPaint(window_, &ps);
 }
 
+ComPtr<ID2D1Bitmap> Viewer::CreateTile(int index) {
+    const Frame& image = *image_;
+    const int rows = std::min(kTile, image.Height() - index * kTile);
+    const RECT band{0, index * kTile, image.Width(), index * kTile + rows};
+    // Annotated tiles are composed in software from the clean pixels, so the
+    // screen shows exactly what copy / save / pin will export.
+    Frame composed;
+    const uint32_t* pixels = image.pixels.data() + static_cast<size_t>(index) * kTile * image.Width();
+    if (std::any_of(marks_.marks.begin(), marks_.marks.end(), [&](const Mark& mark) { return Touches(mark, band); })) {
+        try {
+            if (!renderer_) renderer_ = std::make_unique<Renderer>();
+            composed = FlattenRegion(*renderer_, image, marks_.marks, band);
+            if (composed.Width() == image.Width() && composed.Height() == rows) pixels = composed.pixels.data();
+        } catch (const std::exception&) {
+            // Fall back to the clean pixels; export reports its own errors.
+        }
+    }
+    ComPtr<ID2D1Bitmap> bitmap;
+    const auto properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE));
+    if (FAILED(painter_.Target()->CreateBitmap(D2D1::SizeU(static_cast<UINT32>(image.Width()), static_cast<UINT32>(rows)),
+            pixels, static_cast<UINT32>(image.Width() * 4), properties, &bitmap)))
+        return nullptr;
+    return bitmap;
+}
+
 void Viewer::DrawImage(const Layout& l) {
     const float s = scale_;
     auto* target = painter_.Target();
@@ -279,13 +318,8 @@ void Viewer::DrawImage(const Layout& l) {
         if (t < first - 2 || t > last + 2) { tiles_[t].Reset(); continue; } // bounded GPU memory
         if (t < first || t > last || r1 <= r0) continue;
         const int rows = std::min(kTile, h - t * kTile);
-        if (!tiles_[t]) {
-            const auto properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE));
-            if (FAILED(target->CreateBitmap(D2D1::SizeU(static_cast<UINT32>(image.Width()), static_cast<UINT32>(rows)),
-                    image.pixels.data() + static_cast<size_t>(t) * kTile * image.Width(), static_cast<UINT32>(image.Width() * 4),
-                    properties, &tiles_[t])))
-                continue;
-        }
+        if (!tiles_[t]) tiles_[t] = CreateTile(t);
+        if (!tiles_[t]) continue;
         const float top = y0 + static_cast<float>(t * kTile) * z;
         target->DrawBitmap(tiles_[t].Get(), D2D1::RectF(x0, top, x0 + iw, top + static_cast<float>(rows) * z), 1,
             z >= .999f ? D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR : D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
@@ -371,6 +405,13 @@ void Viewer::DrawSide(const Layout& l) {
     else painter_.Fill(strip, dark_ ? 0xff26303f : 0xffdfe4eb);
     painter_.Stroke(strip, theme.Border(), 0, s);
     const float k = StripScale(l);
+    // Where the annotations are: small ticks beside the strip.
+    for (const Mark& mark : marks_.marks) {
+        const Box b = Bounds(mark);
+        const float y0m = strip.top + std::clamp(b.top, 0.f, static_cast<float>(image_->Height())) * k;
+        const float y1m = std::max(y0m + 3 * s, strip.top + std::clamp(b.bottom, 0.f, static_cast<float>(image_->Height())) * k);
+        painter_.Fill({strip.right + 8 * s, y0m, strip.right + 12 * s, y1m}, 0xffe0529c, 2 * s);
+    }
     const float yt = strip.top + static_cast<float>(crop_top_) * k, yb = strip.top + static_cast<float>(crop_bottom_) * k;
     const uint32_t veil = dark_ ? 0xc0121822 : 0xc0eef1f5;
     if (crop_top_ > 0) painter_.Fill({strip.left, strip.top, strip.right, yt}, veil);
@@ -416,6 +457,29 @@ void Viewer::DrawSide(const Layout& l) {
         const float knob = on ? track.right - 9 * s : track.left + 9 * s;
         painter_.Target()->FillEllipse(D2D1::Ellipse({knob, (track.top + track.bottom) / 2}, 6.5f * s, 6.5f * s), painter_.Brush(enabled ? 0xffffffff : 0xffe5e7eb));
     }
+    if (host_.annotate) {
+        const float ay = oy + 30 * s + 3 * 34 * s + 6 * s;
+        painter_.Line({l.side.left + 16 * s, ay - 4 * s}, {l.side.right - 16 * s, ay - 4 * s}, theme.Border(), s);
+        painter_.Text(L"标注", {l.side.left + 16 * s, ay, l.side.right - 16 * s, ay + 24 * s}, 13, theme.Ink(), true,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        const std::wstring count = marks_.marks.empty() ? L"按 E 在当前画面上标注" : std::to_wstring(marks_.marks.size()) + L" 个 · 导出时合成";
+        painter_.Text(count, {l.side.left + 56 * s, ay, l.side.right - 16 * s, ay + 24 * s}, 11, theme.Muted(), false,
+            DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        for (const auto& item : Items()) {
+            if (item.id < UndoMarks || item.id > ClearMarks) continue;
+            const bool enabled = !annotating_ && (item.id == UndoMarks ? marks_.CanUndo() : item.id == RedoMarks ? marks_.CanRedo() : !marks_.marks.empty());
+            const bool hot = enabled && hover_ == item.id, down = enabled && pressed_ == item.id;
+            painter_.Fill(item.box, down ? (dark_ ? 0x30ffffff : 0x1c203040) : hot ? (dark_ ? 0x1effffff : 0x12203040) : (dark_ ? 0x10ffffff : 0x0a203040), 7 * s);
+            const uint32_t ink = enabled ? (item.id == ClearMarks && hot ? 0xffe5484d : theme.Ink()) : theme.Muted();
+            const Glyph glyph = item.id == UndoMarks ? Glyph::Undo : item.id == RedoMarks ? Glyph::Redo : Glyph::Trash;
+            const wchar_t* label = item.id == UndoMarks ? L"撤销" : item.id == RedoMarks ? L"重做" : L"清除";
+            const float tw = painter_.Measure(label, 11.5f).x;
+            const float total = 18 * s + 4 * s + tw, cx = (item.box.left + item.box.right) / 2, cy = (item.box.top + item.box.bottom) / 2;
+            painter_.Icon(glyph, {cx - total / 2, cy - 9 * s, cx - total / 2 + 18 * s, cy + 9 * s}, ink);
+            painter_.Text(label, {cx - total / 2 + 22 * s, item.box.top, item.box.right, item.box.bottom}, 11.5f, ink, false,
+                DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
+    }
     const RECT crop = Crop();
     const float iy = l.side.bottom - 50 * s;
     painter_.Line({l.side.left + 16 * s, iy - 6 * s}, {l.side.right - 16 * s, iy - 6 * s}, theme.Border(), s);
@@ -432,7 +496,7 @@ void Viewer::DrawActions(const Layout& l) {
     std::vector<ui::Control> controls;
     const bool busy = busy_.load();
     for (const auto& item : Items()) {
-        if (item.id < FitId || item.id > SaveId) continue;
+        if (item.id < FitId || item.id > AnnotateId) continue;
         ui::Control c;
         c.id = item.id;
         c.kind = ui::Kind::Button;
@@ -445,6 +509,7 @@ void Viewer::DrawActions(const Layout& l) {
         case PinId: c.icon = static_cast<int>(Glyph::Pin); c.text = L"贴到桌面"; c.enabled = !busy; break;
         case CopyId: c.icon = static_cast<int>(Glyph::Copy); c.text = L"复制"; c.enabled = !busy; break;
         case SaveId: c.icon = static_cast<int>(Glyph::Save); c.text = L"保存 PNG"; c.primary = true; c.enabled = !busy; break;
+        case AnnotateId: c.icon = static_cast<int>(Glyph::Annotate); c.text = L"标注"; c.selected = annotating_; c.enabled = !busy && !annotating_; break;
         default: break;
         }
         controls.push_back(std::move(c));
@@ -454,8 +519,13 @@ void Viewer::DrawActions(const Layout& l) {
     const std::wstring zoom = L"缩放 " + std::to_wstring(static_cast<int>(std::lround(Zoom() * 100))) + L"%";
     painter_.Text(zoom, {216 * s, l.actions.top, 330 * s, l.actions.bottom}, 12, theme.Muted(), false,
         DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    painter_.Text(L"Ctrl+滚轮缩放 · 拖动平移", {330 * s, l.actions.top, 520 * s, l.actions.bottom}, 11, theme.Muted(), false,
-        DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    // The hint only shows when it cannot collide with the right-hand buttons.
+    float leftmost = l.actions.right;
+    for (const auto& c : controls) if (c.id >= RecaptureId) leftmost = std::min(leftmost, c.bounds.left);
+    const wchar_t* hint = L"Ctrl+滚轮缩放 · 拖动平移";
+    if (330 * s + painter_.Measure(hint, 11).x + 12 * s < leftmost)
+        painter_.Text(hint, {330 * s, l.actions.top, leftmost - 8 * s, l.actions.bottom}, 11, theme.Muted(), false,
+            DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 }
 
 void Viewer::DrawTitle(const Layout& l) {
@@ -536,6 +606,7 @@ void Viewer::Action(int id) {
         break;
     }
     case RecaptureId: {
+        if (annotating_ || !ConfirmDiscard()) break;
         auto recapture = host_.recapture;
         DestroyWindow(window_);
         if (recapture) recapture();
@@ -563,12 +634,118 @@ void Viewer::Action(int id) {
         break;
     }
     case ResetCrop: crop_top_ = 0; crop_bottom_ = image_->Height(); break;
+    case AnnotateId: Annotate(); return;
+    case UndoMarks: if (!annotating_ && marks_.CanUndo()) { marks_.Undo(); MarksChanged(); } return;
+    case RedoMarks: if (!annotating_ && marks_.CanRedo()) { marks_.Redo(); MarksChanged(); } return;
+    case ClearMarks:
+        if (!annotating_ && !marks_.marks.empty()) {
+            marks_.Checkpoint();
+            marks_.marks.clear();
+            MarksChanged();
+            Toast(L"已清除全部标注，可按 Ctrl+Z 撤销");
+        }
+        return;
     case SeamsId: show_seams_ = !show_seams_; break;
     case ScrollbarId: if (scrollbar_ > 0) remove_scrollbar_ = !remove_scrollbar_; break;
     case TrimId: trim_ = !trim_; break;
     default: break;
     }
     Invalidate();
+}
+
+// --------------------------------------------------------------------------
+// Annotation: the visible part of the long image is handed to the regular
+// screenshot editor, positioned exactly over the viewer, and the marks come
+// back in long-image pixels. Pixels are never modified.
+// --------------------------------------------------------------------------
+void Viewer::Annotate() {
+    if (annotating_ || busy_ || !host_.annotate) return;
+    Layout l = Compute();
+    if (Zoom() < .35f) {
+        // Too small to draw on precisely: continue at 100% around the centre.
+        ZoomAt(1, {(l.main.left + l.main.right) / 2, (l.main.top + l.main.bottom) / 2});
+        l = Compute();
+    }
+    const float z = Zoom();
+    POINT origin{};
+    ClientToScreen(window_, &origin);
+    MONITORINFO monitor{sizeof(monitor)};
+    GetMonitorInfoW(MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST), &monitor);
+    const float ox = static_cast<float>(origin.x), oy = static_cast<float>(origin.y);
+    const float area_l = std::max(ox + l.main.left, static_cast<float>(monitor.rcWork.left));
+    const float area_t = std::max(oy + l.main.top, static_cast<float>(monitor.rcWork.top));
+    const float area_r = std::min(ox + l.main.right, static_cast<float>(monitor.rcWork.right));
+    const float area_b = std::min(oy + l.main.bottom, static_cast<float>(monitor.rcWork.bottom));
+    const float sx = ox + ContentLeft(l), sy = oy + ContentTop(l);
+    const int w = image_->Width(), h = image_->Height();
+    // Whole image pixels that are fully visible (inward rounding keeps the
+    // editor inside the image area of the viewer).
+    const RECT slice{std::clamp(static_cast<int>(std::ceil((area_l - sx) / z)), 0, w), std::clamp(static_cast<int>(std::ceil((area_t - sy) / z)), 0, h),
+        std::clamp(static_cast<int>(std::floor((area_r - sx) / z)), 0, w), std::clamp(static_cast<int>(std::floor((area_b - sy) / z)), 0, h)};
+    if (slice.right - slice.left < 16 || slice.bottom - slice.top < 16) {
+        Toast(L"请先把要标注的内容移到窗口中");
+        return;
+    }
+    const RECT bounds{static_cast<LONG>(std::lround(sx + static_cast<float>(slice.left) * z)), static_cast<LONG>(std::lround(sy + static_cast<float>(slice.top) * z)),
+        static_cast<LONG>(std::lround(sx + static_cast<float>(slice.right) * z)), static_cast<LONG>(std::lround(sy + static_cast<float>(slice.bottom) * z))};
+    std::shared_ptr<const Frame> pixels;
+    try {
+        pixels = std::make_shared<const Frame>(Extract(*image_, slice));
+    } catch (const std::exception&) {
+        Toast(L"无法开始标注：内存不足");
+        return;
+    }
+    Slice taken = TakeMarks(marks_.marks, slice);
+    auto indices = std::move(taken.taken);
+    // Disabled before the call: a host may complete (or cancel) synchronously.
+    annotating_ = true;
+    toast_.clear();
+    EnableWindow(window_, FALSE);
+    Invalidate();
+    const bool started = host_.annotate(pixels, std::move(taken.local), bounds,
+        [this, alive = alive_, slice, indices](std::optional<Document> edited, int follow) {
+            if (*alive && annotating_) Annotated(std::move(edited), follow, slice, indices);
+        });
+    if (!started && annotating_) {
+        annotating_ = false;
+        EnableWindow(window_, TRUE);
+        Toast(L"截图编辑器正在使用中，请先完成当前截图");
+    }
+}
+
+void Viewer::Annotated(std::optional<Document> edited, int follow, RECT slice, std::vector<size_t> taken) {
+    annotating_ = false;
+    EnableWindow(window_, TRUE);
+    SetForegroundWindow(window_);
+    if (edited) {
+        auto merged = MergeMarks(marks_.marks, taken, *edited, slice);
+        if (merged != marks_.marks) {
+            marks_.Checkpoint();
+            marks_.marks = std::move(merged);
+            marks_.selected = -1;
+            MarksChanged();
+        }
+    }
+    Invalidate();
+    switch (follow) {
+    case 9: Action(SaveId); break;
+    case 10: Action(CopyId); break;
+    case 13: Action(PinId); break;
+    case 15: if (host_.ocr_available && host_.ocr_available()) Action(OcrId); break;
+    default: break;
+    }
+}
+
+void Viewer::MarksChanged() {
+    marks_exported_ = marks_.marks.empty();
+    tiles_.clear();  // re-composed lazily for the visible rows only
+    Invalidate();
+}
+
+bool Viewer::ConfirmDiscard() {
+    if (marks_.marks.empty() || marks_exported_) return true;
+    return ui::ShowThemedMessage(window_, dark_, L"放弃标注？",
+        L"有 " + std::to_wstring(marks_.marks.size()) + L" 个标注还没有复制、保存或贴图，关闭后将丢失。", L"放弃标注", L"继续编辑");
 }
 
 void Viewer::Start(int kind, std::filesystem::path path) {
@@ -578,13 +755,22 @@ void Viewer::Start(int kind, std::filesystem::path path) {
     const RECT crop = Crop();
     const int format = host_.clipboard_format ? host_.clipboard_format() : -1;
     if (job_worker_.joinable()) job_worker_.join();
-    job_worker_ = std::jthread([this, image = image_, crop, kind, path = std::move(path), format, window = window_] {
+    job_worker_ = std::jthread([this, image = image_, crop, kind, path = std::move(path), format, window = window_, marks = marks_.marks] {
         auto result = std::make_unique<JobResult>();
         result->kind = kind;
         result->path = path;
         const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         try {
-            Frame frame = Extract(*image, crop);
+            Frame frame;
+            if (marks.empty()) {
+                frame = Extract(*image, crop);
+                if (kind == PinId || kind == OcrId) result->ocr = frame;
+            } else {
+                // Annotations are composited only now, band by band.
+                Renderer renderer;
+                frame = FlattenRegion(renderer, *image, marks, crop);
+                if (kind == PinId || kind == OcrId) result->ocr = Extract(*image, crop);
+            }
             if (kind == CopyId) {
                 auto file = format >= 0 ? PrepareClipboardFile(frame, format) : nullptr;
                 result->clipboard = PrepareClipboardImage(frame, file);
@@ -619,6 +805,7 @@ void Viewer::Finished() {
         Toast((result->kind == SaveId ? L"保存失败：" : result->kind == CopyId ? L"复制失败：" : L"操作失败：") + result->error);
         return;
     }
+    marks_exported_ = true;
     switch (result->kind) {
     case CopyId:
         try {
@@ -631,7 +818,7 @@ void Viewer::Finished() {
     case SaveId: Toast(L"已保存：" + result->path.filename().wstring()); break;
     case PinId: case OcrId:
         try {
-            if (host_.pin) host_.pin(std::move(result->frame), POINT{region_.left, region_.top}, result->kind == OcrId);
+            if (host_.pin) host_.pin(std::move(result->frame), std::move(result->ocr), POINT{region_.left, region_.top}, result->kind == OcrId);
             Toast(result->kind == OcrId ? L"已贴到桌面，正在识别文字" : L"已贴到桌面");
         } catch (const std::exception&) {
             Toast(L"无法贴到桌面：图片过大或内存不足");
@@ -654,6 +841,9 @@ void Viewer::Key(WPARAM key) {
     case VK_UP: scroll_y_ -= 60 * scale_ / Zoom(); break;
     case VK_DOWN: scroll_y_ += 60 * scale_ / Zoom(); break;
     case 'C': if (control) Action(CopyId); return;
+    case 'E': if (!control) Action(AnnotateId); return;
+    case 'Z': if (control) Action((GetKeyState(VK_SHIFT) & 0x8000) ? RedoMarks : UndoMarks); return;
+    case 'Y': if (control) Action(RedoMarks); return;
     case 'S': if (control) Action(SaveId); return;
     case '0': case VK_NUMPAD0: if (control) Action(FitId); return;
     case '1': case VK_NUMPAD1: if (control) Action(ActualId); return;
@@ -847,8 +1037,12 @@ LRESULT Viewer::Message(UINT message, WPARAM wp, LPARAM lp) {
     case WM_KEYDOWN: Key(wp); return 0;
     case kOverviewReady: overview_bitmap_.Reset(); Invalidate(); return 0;
     case kJobDone: Finished(); Invalidate(); return 0;
-    case WM_CLOSE: DestroyWindow(window_); return 0;
+    case WM_CLOSE:
+        if (annotating_ || !ConfirmDiscard()) return 0;
+        DestroyWindow(window_);
+        return 0;
     case WM_DESTROY:
+        *alive_ = false;
         KillTimer(window_, 1);
         ResetTarget();
         if (closed_) closed_(this);

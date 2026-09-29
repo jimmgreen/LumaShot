@@ -237,6 +237,33 @@ void Painter::Icon(longshot::Glyph glyph, Box rect, uint32_t color) {
         box(-9, -7, 9, 7, 2);
         line(-4, -3, -4, 3); line(4, -3, 4, 3);
         break;
+    case Glyph::Annotate:
+        // Pencil over a short stroke.
+        line(-7, 7, -8, 9); line(-8, 9, -6, 8);
+        line(-7, 7, 5, -5); line(-5, 9, 7, -3); line(5, -5, 7, -3);
+        line(5, -5, 7, -7); line(7, -7, 9, -5); line(9, -5, 7, -3);
+        line(1, 9, 9, 9);
+        break;
+    case Glyph::Redo: {
+        ComPtr<ID2D1PathGeometry> path;
+        ComPtr<ID2D1GeometrySink> sink;
+        if (FAILED(factory_->CreatePathGeometry(&path)) || FAILED(path->Open(&sink))) break;
+        sink->BeginFigure({cx + 7 * unit, cy - 3 * unit}, D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddLine({cx - 1 * unit, cy - 3 * unit});
+        sink->AddBezier(D2D1::BezierSegment({cx - 10 * unit, cy - 3 * unit}, {cx - 10 * unit, cy + 8 * unit}, {cx - 1 * unit, cy + 8 * unit}));
+        sink->EndFigure(D2D1_FIGURE_END_OPEN);
+        sink->Close();
+        target_->DrawGeometry(path.Get(), brush, stroke);
+        line(7, -3, 2, -8);
+        line(7, -3, 2, 2);
+        break;
+    }
+    case Glyph::Trash:
+        line(-8, -6, 8, -6);
+        line(-3, -6, -2, -9); line(-2, -9, 2, -9); line(2, -9, 3, -6);
+        line(-6, -6, -5, 9); line(-5, 9, 5, 9); line(5, 9, 6, -6);
+        line(-2, -2, -2, 5); line(2, -2, 2, 5);
+        break;
     }
 }
 

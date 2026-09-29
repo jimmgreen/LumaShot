@@ -16,6 +16,9 @@ public:
     bool Start(RECT region);
     bool Active() const { return session_ != nullptr; }
     size_t Viewers() const { return viewers_.size(); }
+    longshot::Viewer* ViewerAt(size_t index) const { return index < viewers_.size() ? viewers_[index].get() : nullptr; }
+    // Opens a viewer for a finished capture (also used by tests).
+    bool Open(std::unique_ptr<longshot::CaptureResult> result);
 private:
     static LRESULT CALLBACK Proc(HWND, UINT, WPARAM, LPARAM);
     void Retire();

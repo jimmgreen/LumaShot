@@ -34,23 +34,29 @@ bool LongCaptureManager::Start(RECT region) {
     const bool dark = host_.dark && host_.dark();
     session_ = std::make_unique<longshot::Session>(region, dark,
         [this](std::unique_ptr<longshot::CaptureResult> result) {
-            try {
-                viewers_.push_back(std::make_unique<longshot::Viewer>(std::move(result), host_, [this](longshot::Viewer* viewer) {
-                    for (auto it = viewers_.begin(); it != viewers_.end(); ++it) {
-                        if (it->get() != viewer) continue;
-                        retired_viewers_.push_back(std::move(*it));
-                        viewers_.erase(it);
-                        break;
-                    }
-                    PostMessageW(window_, kCollect, 0, 0);
-                }));
-            } catch (const std::exception&) {
-                ui::ShowThemedMessage(nullptr, host_.dark && host_.dark(), L"长截图", L"无法打开长截图预览窗口，可能是内存不足。请缩小选区后重试。");
-            }
+            Open(std::move(result));
             Retire();
         },
         [this] { Retire(); });
     return true;
+}
+
+bool LongCaptureManager::Open(std::unique_ptr<longshot::CaptureResult> result) {
+    try {
+        viewers_.push_back(std::make_unique<longshot::Viewer>(std::move(result), host_, [this](longshot::Viewer* viewer) {
+            for (auto it = viewers_.begin(); it != viewers_.end(); ++it) {
+                if (it->get() != viewer) continue;
+                retired_viewers_.push_back(std::move(*it));
+                viewers_.erase(it);
+                break;
+            }
+            PostMessageW(window_, kCollect, 0, 0);
+        }));
+        return true;
+    } catch (const std::exception&) {
+        ui::ShowThemedMessage(nullptr, host_.dark && host_.dark(), L"长截图", L"无法打开长截图预览窗口，可能是内存不足。请缩小选区后重试。");
+        return false;
+    }
 }
 
 void LongCaptureManager::Retire() {

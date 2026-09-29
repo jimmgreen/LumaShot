@@ -37,6 +37,7 @@ private:
     friend struct MenuFocusTest;
     friend struct SettingsCoexistTest;
     friend struct CapturePinTest;
+    friend struct LongAnnotateTest;
     friend struct ToolbarMotionTest;
     struct View { Application* app{}; RECT bounds{}; HWND window{}; std::unique_ptr<Renderer> renderer; bool needs_paint{}; };
     struct Result { std::unique_ptr<ClipboardImage> clipboard_image; Frame frame, acrylic, cursor_patch, ocr_frame;std::optional<Frame> annotation_base;Document annotations; std::wstring error; bool capture{}, saved{}, pinned{}, recognize{}; uint64_t generation{},editing{};bool edit_copy{}; };
@@ -47,6 +48,7 @@ private:
     void Start();
     DWORD WaitForWork(std::span<const HANDLE> extra = {});
     bool AnnotatePin(uint64_t,std::shared_ptr<const Frame>,Document,RECT);
+    bool AnnotateImage(std::shared_ptr<const Frame>,Document,RECT,longshot::Host::AnnotateDone);
     void UpdatePinEditRegion();
     void Finish(bool save,bool pin=false,bool recognize=false);
     void ResultReady();
@@ -162,6 +164,9 @@ private:
     std::unique_ptr<Result> result_;
     uint64_t generation_{},pin_edit_id_{};
     std::shared_ptr<const Frame> pin_edit_source_;RECT pin_edit_bounds_{};bool pin_edit_copy_{};
+    // Reserved pin_edit_id_ for a long-image annotation session (pin ids count up from 1).
+    static constexpr uint64_t kImageEditId=~uint64_t{};
+    longshot::Host::AnnotateDone image_edit_done_;int image_edit_follow_{};
     bool pending_{},active_{},moving_{},resizing_{},mark_moving_{},demo_{};
     bool diagnostic_session_{};
     bool ipc_demo_{};

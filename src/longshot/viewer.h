@@ -2,6 +2,8 @@
 #include "longshot/canvas.h"
 #include "longshot/session.h"
 #include "export/clipboard.h"
+#include "longshot/annotations.h"
+#include <optional>
 #include <atomic>
 #include <filesystem>
 #include <functional>
@@ -16,9 +18,16 @@ struct Host {
     std::function<int()> clipboard_format;   // -1: bitmap only, otherwise paste-as-file format
     std::function<std::filesystem::path()> save_directory;
     std::function<void(const std::filesystem::path&)> remember_directory;
-    std::function<void(Frame, POINT, bool recognize)> pin;
+    // image: what the pin shows (annotations composited); ocr: clean pixels.
+    std::function<void(Frame image, Frame ocr, POINT, bool recognize)> pin;
     std::function<bool()> ocr_available;
     std::function<void()> recapture;
+    // Opens the screenshot editor over `bounds` (physical screen pixels) showing
+    // `slice` with `marks` in slice coordinates. `done` receives the edited marks
+    // (nullopt when canceled) and the follow-up the user picked in the editor:
+    // 0 none, 9 save, 10 copy, 13 pin, 15 OCR. Returns false when the editor is busy.
+    using AnnotateDone = std::function<void(std::optional<Document>, int follow)>;
+    std::function<bool(std::shared_ptr<const Frame> slice, Document marks, RECT bounds, AnnotateDone done)> annotate;
 };
 
 // Independent window for one long image: tiled display, zoom, minimap
@@ -30,12 +39,15 @@ public:
     Viewer(const Viewer&) = delete;
     Viewer& operator=(const Viewer&) = delete;
     HWND Window() const { return window_; }
+    // Non-destructive annotations in long-image pixels.
+    const std::vector<Mark>& Marks() const { return marks_.marks; }
+    bool Annotating() const { return annotating_; }
 
 private:
     struct Item { int id{}; Box box{}; };
     struct Layout { Box title, main, side, actions, minimap, strip; };
     struct Job { int kind{}; std::filesystem::path path; };
-    struct JobResult { int kind{}; Frame frame; std::unique_ptr<ClipboardImage> clipboard; std::filesystem::path path; std::wstring error; };
+    struct JobResult { int kind{}; Frame frame, ocr; std::unique_ptr<ClipboardImage> clipboard; std::filesystem::path path; std::wstring error; };
 
     static LRESULT CALLBACK Proc(HWND, UINT, WPARAM, LPARAM);
     LRESULT Message(UINT, WPARAM, LPARAM);
@@ -62,6 +74,11 @@ private:
     void Toast(std::wstring text);
     void ResetTarget();
     void Invalidate() { InvalidateRect(window_, nullptr, FALSE); }
+    void Annotate();
+    void Annotated(std::optional<Document> edited, int follow, RECT slice, std::vector<size_t> taken);
+    void MarksChanged();
+    bool ConfirmDiscard();
+    ComPtr<ID2D1Bitmap> CreateTile(int index);
 
     Host host_;
     std::function<void(Viewer*)> closed_;
@@ -86,6 +103,11 @@ private:
     POINT drag_start_{};
     float drag_x_{}, drag_y_{};
     std::wstring toast_;
+    // Annotations.
+    Document marks_;
+    bool annotating_{}, marks_exported_{true};
+    std::unique_ptr<Renderer> renderer_;  // tile composition, created on first use
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
     // Background work.
     std::mutex mutex_;
     std::shared_ptr<Frame> overview_;

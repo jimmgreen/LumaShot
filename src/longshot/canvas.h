@@ -22,7 +22,7 @@ inline float Scale(HWND window){return window?float(GetDpiForWindow(window))/96.
 inline bool Contains(RECT r,POINT p){return p.x>=r.left&&p.x<r.right&&p.y>=r.top&&p.y<r.bottom;}
 // Icon ids used only by the long-capture windows.
 enum class Glyph { Pause, Play, Undo, Close, Check, Auto, Manual, Speed, Recapture, Ocr, Pin, Copy, Save,
-    Minimize, Maximize, Restore, Warning, Info, Seams, Scrollbar, Trim, Fit, Actual };
+    Minimize, Maximize, Restore, Warning, Info, Seams, Scrollbar, Trim, Fit, Actual, Annotate, Redo, Trash };
 
 // Per-window drawing state: device-independent resources, cached text formats
 // and the shared TextRenderer. All coordinates are physical pixels; sizes in

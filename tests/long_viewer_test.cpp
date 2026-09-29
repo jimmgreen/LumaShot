@@ -8,11 +8,15 @@
 #include <windows.h>
 #include <iostream>
 #include <string>
+#include <atomic>
+#include <cstring>
+#include <thread>
 
 using namespace lumashot;
 using namespace lumashot::longshot;
 
 namespace {
+constexpr uint32_t kRed = 0xffe5484d;
 int failures = 0;
 void Expect(bool condition, const std::string& name) {
     std::cout << (condition ? "[PASS] " : "[FAIL] ") << name << '\n';
@@ -66,6 +70,61 @@ void Pump(int milliseconds) {
     }
 }
 
+// Keys with Ctrl/Shift held, through the thread keyboard state the viewer reads.
+void Chord(HWND window, WPARAM key, bool shift = false) {
+    BYTE state[256]{}, saved[256]{};
+    GetKeyboardState(state);
+    std::memcpy(saved, state, sizeof(state));
+    state[VK_CONTROL] = 0x80;
+    if (shift) state[VK_SHIFT] = 0x80;
+    SetKeyboardState(state);
+    SendMessageW(window, WM_KEYDOWN, key, 0);
+    SetKeyboardState(saved);
+}
+
+HWND OwnDialog() {
+    struct Search { HWND found{}; } search;
+    EnumWindows([](HWND w, LPARAM lp) -> BOOL {
+        DWORD pid{};
+        GetWindowThreadProcessId(w, &pid);
+        wchar_t name[64]{};
+        GetClassNameW(w, name, 64);
+        if (pid == GetCurrentProcessId() && std::wstring(name) == L"LumaShot.ThemedMessage" && IsWindowVisible(w)) {
+            reinterpret_cast<Search*>(lp)->found = w;
+            return FALSE;
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&search));
+    return search.found;
+}
+
+// Answers the discard prompt from another thread (the prompt runs a modal loop).
+std::jthread AnswerPrompt(std::atomic_bool& shown, bool accept) {
+    return std::jthread([&shown, accept](std::stop_token stop) {
+        while (!stop.stop_requested()) {
+            if (HWND dialog = OwnDialog()) {
+                shown = true;
+                Sleep(150);
+                if (accept) PostMessageW(dialog, WM_KEYDOWN, VK_TAB, 0);
+                PostMessageW(dialog, WM_KEYDOWN, accept ? VK_RETURN : VK_ESCAPE, 0);
+                return;
+            }
+            Sleep(20);
+        }
+    });
+}
+
+size_t CountNear(const Frame& shot, uint32_t color) {
+    size_t count = 0;
+    for (uint32_t p : shot.pixels) {
+        const int dr = static_cast<int>((p >> 16) & 255) - static_cast<int>((color >> 16) & 255);
+        const int dg = static_cast<int>((p >> 8) & 255) - static_cast<int>((color >> 8) & 255);
+        const int db = static_cast<int>(p & 255) - static_cast<int>(color & 255);
+        count += std::abs(dr) < 40 && std::abs(dg) < 40 && std::abs(db) < 40;
+    }
+    return count;
+}
+
 bool Varied(const Frame& shot) {
     if (shot.pixels.empty()) return false;
     const uint32_t first = shot.pixels[shot.pixels.size() / 2];
@@ -87,7 +146,26 @@ int main(int argc, char** argv) {
         host.clipboard_format = [] { return -1; };
         host.save_directory = [] { return std::filesystem::path(); };
         host.remember_directory = [](const std::filesystem::path&) {};
-        host.pin = [](Frame, POINT, bool) {};
+        Frame pinned, pinned_ocr;
+        int pins = 0;
+        host.pin = [&](Frame image, Frame ocr, POINT, bool) { pinned = std::move(image); pinned_ocr = std::move(ocr); ++pins; };
+        // Editor stand-in: records what the viewer hands over and answers at once.
+        struct Stub {
+            int calls = 0, follow = 0;
+            RECT bounds{};
+            int slice_w = 0, slice_h = 0;
+            size_t received = 0;
+            std::function<std::optional<Document>(Document)> respond;
+        } stub;
+        host.annotate = [&stub](std::shared_ptr<const Frame> slice, Document marks, RECT bounds, Host::AnnotateDone done) {
+            ++stub.calls;
+            stub.bounds = bounds;
+            stub.slice_w = slice->Width();
+            stub.slice_h = slice->Height();
+            stub.received = marks.marks.size();
+            done(stub.respond(std::move(marks)), stub.follow);
+            return true;
+        };
         host.ocr_available = [] { return true; };
         host.recapture = [] {};
         bool closed = false;
@@ -119,9 +197,79 @@ int main(int argc, char** argv) {
         SendMessageW(window, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rect.right - rect.left, rect.bottom - rect.top));
         Pump(100);
         Expect(!closed, theme + ": stays open until closed");
-        SendMessageW(window, WM_CLOSE, 0, 0);
+
+        // ---- Annotation (v2): visible slice goes to the editor, marks come back.
+        SendMessageW(window, WM_KEYDOWN, VK_HOME, 0);
+        Pump(200);
+        const Frame clean = CaptureRegion(rect);
+        stub.respond = [](Document) {
+            Document edited;
+            Mark mark;
+            mark.tool = Tool::Rectangle;
+            mark.a = {60, 120};
+            mark.b = {420, 300};
+            mark.width = 8;
+            mark.color = kRed;
+            edited.marks.push_back(mark);
+            return std::optional<Document>(std::move(edited));
+        };
+        SendMessageW(window, WM_KEYDOWN, 'E', 0);
+        Pump(300);
+        const RECT b = stub.bounds;
+        const bool inside = b.left >= rect.left && b.top >= rect.top && b.right <= rect.right && b.bottom <= rect.bottom;
+        Expect(stub.calls == 1 && stub.received == 0 && inside, theme + ": E hands the visible slice to the editor over the viewer");
+        const double slice_ratio = static_cast<double>(stub.slice_w) / std::max(1, stub.slice_h);
+        const double bounds_ratio = static_cast<double>(b.right - b.left) / std::max<LONG>(1, b.bottom - b.top);
+        Expect(std::abs(slice_ratio / bounds_ratio - 1) < .03, theme + ": editor bounds keep the slice aspect ratio");
+        Expect(viewer->Marks().size() == 1 && !viewer->Annotating() && IsWindowEnabled(window), theme + ": edited marks are merged and the viewer is re-enabled");
+        const Frame annotated = CaptureRegion(rect);
+        Expect(CountNear(annotated, kRed) > CountNear(clean, kRed) + 400, theme + ": annotation is composited into the visible tiles");
+        if (!folder.empty()) SavePng(annotated, folder / ("viewer-" + theme + "-annotated.png"));
+        const Mark placed = viewer->Marks().front();
+        Expect(placed.b.x - placed.a.x == 360 && placed.b.y - placed.a.y == 180, theme + ": marks keep their size in long-image pixels");
+
+        stub.respond = [](Document marks) { marks.marks.clear(); return std::optional<Document>(std::move(marks)); };
+        SendMessageW(window, WM_KEYDOWN, 'E', 0);
+        Pump(200);
+        Expect(stub.received == 1 && viewer->Marks().empty(), theme + ": existing marks re-open for editing (and can be deleted)");
+        Chord(window, 'Z');
+        Expect(viewer->Marks().size() == 1 && viewer->Marks().front() == placed, theme + ": Ctrl+Z restores the deleted mark");
+        Chord(window, 'Y');
+        Expect(viewer->Marks().empty(), theme + ": Ctrl+Y redoes");
+        Chord(window, 'Z', true);
+        Chord(window, 'Z');
+        Expect(viewer->Marks().size() == 1, theme + ": undo after redo round-trips");
+
+        stub.respond = [](Document) { return std::optional<Document>(); };
+        SendMessageW(window, WM_KEYDOWN, 'E', 0);
         Pump(100);
-        Expect(closed && !IsWindow(window), theme + ": WM_CLOSE destroys the window and notifies the owner");
+        Expect(viewer->Marks().size() == 1 && IsWindowEnabled(window), theme + ": canceling the editor keeps the marks");
+
+        {
+            std::atomic_bool shown{};
+            auto answer = AnswerPrompt(shown, false);
+            SendMessageW(window, WM_CLOSE, 0, 0);
+            Pump(100);
+            Expect(shown && !closed && IsWindow(window), theme + ": closing with unexported marks asks first; Esc keeps the window");
+        }
+
+        stub.respond = [](Document marks) { return std::optional<Document>(std::move(marks)); };
+        stub.follow = 13;  // pin chosen in the editor: the whole long image is pinned
+        SendMessageW(window, WM_KEYDOWN, 'E', 0);
+        for (int i = 0; i < 100 && pins == 0; ++i) Pump(50);
+        bool composed = pins == 1 && pinned.Width() == pinned_ocr.Width() && pinned.Height() == pinned_ocr.Height() && pinned.Height() == 9000;
+        size_t differing = 0;
+        if (composed) for (size_t i = 0; i < pinned.pixels.size(); ++i) differing += pinned.pixels[i] != pinned_ocr.pixels[i];
+        Expect(composed && differing > 1000, theme + ": pin exports the annotated long image with clean OCR pixels");
+        stub.follow = 0;
+        {
+            std::atomic_bool shown{};
+            auto answer = AnswerPrompt(shown, true);
+            SendMessageW(window, WM_CLOSE, 0, 0);
+            Pump(100);
+            answer.request_stop();
+            Expect(!shown && closed && !IsWindow(window), theme + ": after export the window closes without asking");
+        }
         viewer.reset();
     }
     if (SUCCEEDED(com)) CoUninitialize();

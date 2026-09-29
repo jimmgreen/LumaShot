@@ -128,8 +128,12 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
             preferences_.save_directory=folder;
             if(!demo_&&!diagnostic_session_){settings_writer_.Request(preferences_);settings_writer_.Flush();}
         };
-        host.pin=[this](Frame image,POINT position,bool recognize){
-            Frame ocr=image;pins_->Create(std::move(image),std::move(ocr),position,std::nullopt,{},recognize&&ocr_available_);
+        host.pin=[this](Frame image,Frame ocr,POINT position,bool recognize){
+            if(ocr.pixels.empty())ocr=image;
+            pins_->Create(std::move(image),std::move(ocr),position,std::nullopt,{},recognize&&ocr_available_);
+        };
+        host.annotate=[this](std::shared_ptr<const Frame> image,Document marks,RECT bounds,longshot::Host::AnnotateDone done){
+            try{return AnnotateImage(std::move(image),std::move(marks),bounds,std::move(done));}catch(const std::exception&){return false;}
         };
         host.ocr_available=[this]{return ocr_available_;};
         host.recapture=[this]{PostMessageW(main_,LaunchCommandMessage,1,0);};
@@ -305,6 +309,14 @@ bool Application::AnnotatePin(uint64_t id,std::shared_ptr<const Frame> image,Doc
     }catch(...){Cancel(false);throw;}
     return true;
 }
+bool Application::AnnotateImage(std::shared_ptr<const Frame> image,Document annotations,RECT bounds,longshot::Host::AnnotateDone done){
+    // Long-image annotation reuses the pin editing session: fixed selection over
+    // the viewer, full toolset, marks returned in source pixels on completion.
+    if(!image||!AnnotatePin(kImageEditId,std::move(image),std::move(annotations),bounds))return false;
+    image_edit_done_=std::move(done);image_edit_follow_=0;
+    state_.hint=L"长图标注 · Enter 完成 · Esc 取消";Invalidate();
+    return true;
+}
 void Application::UpdatePinEditRegion(){
     if(!pin_edit_id_)return;
     for(auto& view:views_){
@@ -410,6 +422,10 @@ void Application::ResultReady() {
         cursor_patch_=std::make_shared<Frame>(std::move(result->cursor_patch));
         frame_=std::make_shared<Frame>(std::move(result->frame));
         acrylic_=std::make_shared<Frame>(std::move(result->acrylic));ShowViews();
+    }else if(result->editing==kImageEditId){
+        auto done=std::move(image_edit_done_);image_edit_done_=nullptr;const int follow=std::exchange(image_edit_follow_,0);
+        pin_edit_id_=0;pin_edit_source_.reset();Cancel(false);
+        if(done)done(std::move(result->annotations),follow);
     }else if(result->editing){
         if(result->edit_copy)PublishClipboardImage(Owner(),*result->clipboard_image);
         pins_->CompleteAnnotation(result->editing,std::move(result->frame),std::move(result->annotations),std::move(result->annotation_base),result->recognize);pin_edit_id_=0;pin_edit_source_.reset();Cancel(false);
@@ -489,7 +505,9 @@ void Application::Cancel(bool close_demo) {
     for(auto& view:views_)if(IsWindow(view->window))DestroyWindow(view->window);
     views_.clear();frame_.reset();acrylic_.reset();cursor_patch_.reset();document_.Reset();draft_.reset();
     moving_=resizing_=mark_moving_=false;edit_original_.reset();mark_handle_=-1;
-    if(edited&&pins_)pins_->CompleteAnnotation(edited,std::nullopt);pin_edit_source_.reset();pin_edit_copy_=false;
+    if(edited==kImageEditId){auto done=std::move(image_edit_done_);image_edit_done_=nullptr;image_edit_follow_=0;if(done)done(std::nullopt,0);}
+    else if(edited&&pins_)pins_->CompleteAnnotation(edited,std::nullopt);
+    pin_edit_source_.reset();pin_edit_copy_=false;
     if(ipc_client_){
         // Finish the stopped export before releasing its output path or notifying
         // the caller. A late PNG must never survive a canceled request.
@@ -992,6 +1010,12 @@ void Application::Finish(bool save,bool pin,bool recognize) {
     if(!state_.selected||state_.busy||pending_)return;EndPolyline(false);state_.line_snap.reset();CommitText();
     std::filesystem::path path=client_output_;
     if(!client_output_.empty()){save=false;pin=false;recognize=false;}
+    if(pin_edit_id_==kImageEditId){
+        // Export buttons in a long-image edit apply to the whole long image: finish
+        // the edit here and let the viewer run the action afterwards.
+        image_edit_follow_=save?9:pin&&recognize?15:pin?13:pin_edit_copy_?10:0;
+        save=pin=recognize=false;pin_edit_copy_=false;
+    }
     if(save) {
         SYSTEMTIME time{};GetLocalTime(&time);wchar_t filename[32768]{};
         swprintf_s(filename,L"LumaShot-%04u%02u%02u-%02u%02u%02u.png",time.wYear,time.wMonth,time.wDay,time.wHour,time.wMinute,time.wSecond);

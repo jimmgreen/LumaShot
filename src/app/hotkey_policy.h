@@ -22,7 +22,7 @@ inline bool FullScreenGameActive(){
     return bounds.left<=monitor.rcMonitor.left&&bounds.top<=monitor.rcMonitor.top&&bounds.right>=monitor.rcMonitor.right&&bounds.bottom>=monitor.rcMonitor.bottom;
 }
 inline bool HotkeysSuspended(const Preferences& p,bool game){return p.hotkeys_disabled||(p.disable_hotkeys_in_game&&game);}
-inline Preferences EffectiveHotkeys(Preferences p,bool suspended){if(suspended)p.key=p.gif_key=p.video_key=0;return p;}
+inline Preferences EffectiveHotkeys(Preferences p,bool suspended){if(suspended)p.key=p.gif_key=p.video_key=p.translate_key=0;return p;}
 inline bool AllowLaunch(UINT message,bool suspended){return message==LaunchCommandMessage||(message==WM_HOTKEY&&!suspended);}
 inline void AppendHotkeyPolicyMenu(HMENU menu,const Preferences& p){
     AppendMenuW(menu,MF_SEPARATOR,0,nullptr);

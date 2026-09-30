@@ -24,7 +24,7 @@ static int Run(){
     app.main_=CreateWindowExW(0,wc.lpszClassName,L"Synthetic hotkey host",0,0,0,0,0,HWND_MESSAGE,nullptr,wc.hInstance,&app);
     HWND probe=CreateWindowExW(0,L"STATIC",L"Synthetic key ownership probe",0,0,0,0,0,HWND_MESSAGE,nullptr,wc.hInstance,nullptr);
     expect(app.main_&&probe,"isolated message-only test windows created");
-    auto& pref=app.preferences_;pref.modifiers=pref.gif_modifiers=pref.video_modifiers=MOD_CONTROL|MOD_ALT|MOD_SHIFT;pref.key=VK_F20;pref.gif_key=VK_F21;pref.video_key=VK_F22;
+    auto& pref=app.preferences_;pref.modifiers=pref.gif_modifiers=pref.video_modifiers=MOD_CONTROL|MOD_ALT|MOD_SHIFT;pref.key=VK_F20;pref.gif_key=VK_F21;pref.video_key=VK_F22;pref.translate_modifiers=MOD_CONTROL|MOD_ALT|MOD_SHIFT;pref.translate_key=VK_F19;
     const auto available=[&](Shortcut key){const bool free=RegisterHotKey(probe,77,key.modifiers|MOD_NOREPEAT,key.key)!=FALSE;if(free)UnregisterHotKey(probe,77);return free;};
     const auto owns=[&](bool registered){bool ok=true;for(auto key:Shortcuts(pref))if(key.key)ok&=available(key)!=registered;return ok;};
     expect(owns(false),"synthetic shortcut combinations initially free");

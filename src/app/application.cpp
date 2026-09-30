@@ -9,6 +9,7 @@
 #include "model/mark_properties.h"
 #include "ocr/availability.h"
 #include "app/application.h"
+#include "app/translation_settings.h"
 #include "model/number_label.h"
 #include "app/diagnostics.h"
 #include "resource.h"
@@ -40,6 +41,10 @@ constexpr UINT_PTR kUpdateTimer=23,kUpdatePromptTimer=24;
 constexpr UINT kUpdateStartupDelay=90'000,kUpdateInterval=6*60*60*1000;
 constexpr long long kUpdateCheckPeriod=24*60*60;
 constexpr UINT kTrayCheckUpdate=40,kTrayCancelUpdate=41,kTrayInstallUpdate=42,kTrayDownloadUpdate=43;
+// Folded clipboard strip: tray toggle, tray "enable clipboard", and the panel's
+// notification that the strip was dragged onto its close target.
+constexpr UINT kTrayClipboardStrip=11,kTrayEnableClipboard=12,kStripDismissed=WM_APP+121;
+constexpr UINT kTrayTranslate=13,kTrayTranslationSettings=14;
 constexpr wchar_t kTrayTip[]=L"LumaShot · 截图与标注";
 static Point GlobalPoint(RECT r,LPARAM lp) {return {float(r.left+GET_X_LPARAM(lp)),float(r.top+GET_Y_LPARAM(lp))};}
 static void PlaceNumberBadge(Mark& mark,Point p){const auto b=Normalize(mark.a,mark.b);const float dx=p.x-(b.left+b.right)/2,dy=p.y-(b.top+b.bottom)/2;mark.a.x+=dx;mark.b.x+=dx;mark.a.y+=dy;mark.b.y+=dy;}
@@ -129,10 +134,12 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
     main_=CreateWindowExW(WS_EX_TOOLWINDOW,main_class.lpszClassName,L"LumaShot",WS_POPUP,0,0,0,0,nullptr,nullptr,instance,this);
     CheckWin32(main_!=nullptr,"Create host window");
     clipboard_panel_=std::make_unique<ClipboardPanel>(main_,[this]{PostMessageW(main_,WM_APP+85,0,0);},[this]{if(SettingsShortcutRecording())return false;RefreshHotkeys();return !hotkeys_suspended_;});
+    clipboard_panel_->SetStripDismissedHandler([this]{PostMessageW(main_,kStripDismissed,0,0);});
     pins_=std::make_unique<PinManager>(main_);
     pins_->sticker_style=[this]{return preferences_.pin_style;};
     pins_->dark_theme=[this]{return preferences_.Dark();};
     pins_->clipboard_format=[this]{return preferences_.paste_as_file?preferences_.paste_file_format:-1;};
+    pins_->open_translation_settings=[this]{if(!LaunchTranslationSettings(preferences_.Dark()))Notice(L"无法打开翻译设置。");};
     pins_->annotate=[this](uint64_t id,std::shared_ptr<const Frame> image,Document document,RECT bounds){return AnnotatePin(id,std::move(image),std::move(document),bounds);};
     {
         longshot::Host host;
@@ -159,6 +166,7 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
     tray.uCallbackMessage=kTray;tray.hIcon=tray_icon_;wcscpy_s(tray.szTip,kTrayTip);
     if(!demo_&&!diagnostic_session_)CheckWin32(Shell_NotifyIconW(NIM_ADD,&tray)!=FALSE,"Add tray icon");
     clipboard_panel_->SetShortcut(preferences_.clipboard_modifiers,preferences_.clipboard_key);
+    clipboard_panel_->SetStripVisible(preferences_.clipboard_strip_visible);
     if(!demo_&&!diagnostic_session_)ConfigureHotkeyPolicy();
     if(!demo_&&!diagnostic_session_)clipboard_panel_->SetPersistent(preferences_.clipboard_persist);
     if(!demo_&&!diagnostic_session_&&!clipboard_panel_->Enable(preferences_.clipboard_enabled,preferences_.Dark()))Notice(L"剪贴板监听无法启动，请重新开启。");
@@ -227,6 +235,7 @@ LRESULT CALLBACK Application::MainProc(HWND window,UINT message,WPARAM wp,LPARAM
         if(message==WM_TIMER&&wp==19){if(!app->recording_process_.Active()){KillTimer(window,19);app->Start();}else if(--app->recording_finish_wait_<=0)KillTimer(window,19);return 0;}
         if(message==WM_TIMER&&wp==20){app->RefreshHotkeys();return 0;}
         if(message==kUpdate){app->UpdateNotification(wp);return 0;}
+        if(message==kStripDismissed){app->ClipboardStripDismissed();return 0;}
         if(message==WM_TIMER&&wp==kUpdateTimer){SetTimer(window,kUpdateTimer,kUpdateInterval,nullptr);app->UpdateTimer();return 0;}
         if(message==WM_TIMER&&wp==kUpdatePromptTimer){if(!app->UpdateBusy()){KillTimer(window,kUpdatePromptTimer);app->PromptUpdate();}return 0;}
         if(message==WM_HOTKEY||message==LaunchCommandMessage){
@@ -236,8 +245,11 @@ LRESULT CALLBACK Application::MainProc(HWND window,UINT message,WPARAM wp,LPARAM
             if(SettingsShortcutRecording())return 0;
             if((wp==2||wp==3)&&app->recording_process_.Active()){app->recording_process_.Show();return 0;}
             if(wp==2||wp==3){if(!app->active_&&!app->pending_&&!app->recording_process_.Start(wp==2,app->preferences_.Dark()))app->Notice(L"无法启动录制，请检查录制组件是否完整。");return 0;}
+            if(wp==4){if(!app->ocr_available_){app->Notice(L"截图翻译需要文字识别组件。");return 0;}if(!app->active_&&!app->pending_){app->translate_request_=true;app->Start();app->translate_request_=false;}return 0;}
             if(wp==1)app->Start();return 0;}
         if(message==kOcrReady){app->pins_->Ready();return 0;}
+        if(message==kTranslateReady){app->pins_->TranslationReady(uint64_t(wp));return 0;}
+        if(message==kTranslationConfigChanged){app->pins_->TranslationConfigChanged();return 0;}
         if(message==kPinSaveReady||(message==WM_TIMER&&wp==kPinSaveReady)){app->pins_->Saved();return 0;}
         if(message==kResult){app->ResultReady();return 0;}
         if(message==kElementsReady){app->ElementsReady();return 0;}
@@ -267,9 +279,13 @@ void Application::TrayMenu() {
     HMENU menu=CreatePopupMenu();
     AppendMenuW(menu,MF_STRING,1,L"开始截图");
     AppendMenuW(menu,MF_STRING,2,L"3 秒后截图");
+    if(ocr_available_)AppendMenuW(menu,MF_STRING,kTrayTranslate,(preferences_.translate_key?L"截图翻译（"+ShortcutLabel(preferences_.translate_modifiers,preferences_.translate_key)+L"）":std::wstring(L"截图翻译")).c_str());
     AppendMenuW(menu,MF_STRING,6,L"录制 GIF…");AppendMenuW(menu,MF_STRING,7,L"录制屏幕…");
     AppendMenuW(menu,MF_STRING|(preferences_.include_cursor?MF_CHECKED:0),3,L"包含鼠标指针");
-    if(preferences_.clipboard_enabled)AppendMenuW(menu,MF_STRING,8,(preferences_.clipboard_key?L"剪贴板（"+ShortcutLabel(preferences_.clipboard_modifiers,preferences_.clipboard_key)+L"）":L"剪贴板").c_str());
+    if(preferences_.clipboard_enabled){
+        AppendMenuW(menu,MF_STRING,8,(preferences_.clipboard_key?L"剪贴板（"+ShortcutLabel(preferences_.clipboard_modifiers,preferences_.clipboard_key)+L"）":L"剪贴板").c_str());
+        AppendMenuW(menu,MF_STRING|(preferences_.clipboard_strip_visible?MF_CHECKED:0),kTrayClipboardStrip,L"显示剪贴板侧边条");
+    }else AppendMenuW(menu,MF_STRING,kTrayEnableClipboard,L"开启剪贴板");
     AppendHotkeyPolicyMenu(menu,preferences_);
     if(updater_){
         const auto phase=updater_->phase();
@@ -282,6 +298,7 @@ void Application::TrayMenu() {
         else if(update_manifest_)AppendMenuW(menu,MF_STRING,kTrayDownloadUpdate,(L"下载更新 "+update::VersionText(update_manifest_->version)+L"…").c_str());
         else AppendMenuW(menu,MF_STRING,kTrayCheckUpdate,L"检查更新…");
     }
+    if(ocr_available_)AppendMenuW(menu,MF_STRING,kTrayTranslationSettings,L"翻译引擎设置…");
     AppendMenuW(menu,MF_STRING,4,L"设置…");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,5,L"退出");
     POINT p{};GetCursorPos(&p);SetForegroundWindow(main_);
     const UINT choice=ui::TrackTrayMenu(main_,menu,p,preferences_.Dark());
@@ -291,6 +308,10 @@ void Application::TrayMenu() {
     if(choice==2)SetTimer(main_,8,3000,[](HWND w,UINT,UINT_PTR id,DWORD){KillTimer(w,id);PostMessageW(w,LaunchCommandMessage,1,0);});
     if(choice==3){preferences_.include_cursor=!preferences_.include_cursor;settings_writer_.Request(preferences_);settings_writer_.Flush();}
     if(choice==8&&clipboard_panel_)clipboard_panel_->Show();
+    if(choice==kTrayTranslate)PostMessageW(main_,LaunchCommandMessage,4,0);
+    if(choice==kTrayTranslationSettings&&!LaunchTranslationSettings(preferences_.Dark()))Notice(L"无法打开翻译设置。");
+    if(choice==kTrayClipboardStrip)SetClipboardStripVisible(!preferences_.clipboard_strip_visible);
+    if(choice==kTrayEnableClipboard)EnableClipboardFromTray();
     if(choice==GameHotkeyMenu||choice==DisableHotkeyMenu)ToggleHotkeyPolicy(choice);
     if(choice==4)Settings();
     if(choice==kTrayCheckUpdate)CheckForUpdates(true);
@@ -349,6 +370,30 @@ update::Endpoints Application::UpdateEndpoints() const{
 }
 bool Application::UpdateBusy() const{
     return active_||pending_||settings_open_||ipc_client_||recording_process_.Active()||(longshot_&&longshot_->Active());
+}
+void Application::SetClipboardStripVisible(bool visible){
+    preferences_.clipboard_strip_visible=visible;
+    if(clipboard_panel_)clipboard_panel_->SetStripVisible(visible);
+    if(!demo_&&!diagnostic_session_){settings_writer_.Request(preferences_);settings_writer_.Flush();}
+}
+void Application::ClipboardStripDismissed(){
+    // The panel has already hidden the strip; persist that and explain the way back once.
+    const bool first=!preferences_.clipboard_strip_hint_shown;
+    preferences_.clipboard_strip_hint_shown=true;
+    SetClipboardStripVisible(false);
+    if(!first||demo_||diagnostic_session_)return;
+    NOTIFYICONDATAW info{sizeof(info)};info.hWnd=main_;info.uID=1;info.uFlags=NIF_INFO;info.dwInfoFlags=NIIF_INFO|NIIF_RESPECT_QUIET_TIME;
+    wcscpy_s(info.szInfoTitle,L"剪贴板侧边条已隐藏");
+    const std::wstring shortcut=preferences_.clipboard_key&&!preferences_.hotkeys_disabled?L"按 "+ShortcutLabel(preferences_.clipboard_modifiers,preferences_.clipboard_key)+L" 仍可打开剪贴板。":L"";
+    wcsncpy_s(info.szInfo,(L"剪贴板仍在记录。"+shortcut+L"可在托盘菜单或设置中重新显示侧边条。").c_str(),_TRUNCATE);
+    Shell_NotifyIconW(NIM_MODIFY,&info);
+}
+void Application::EnableClipboardFromTray(){
+    if(!clipboard_panel_||preferences_.clipboard_enabled)return;
+    preferences_.clipboard_strip_visible=true;clipboard_panel_->SetStripVisible(true);
+    if(!clipboard_panel_->Enable(true,preferences_.Dark())){Notice(L"剪贴板监听无法启动，请重新开启。");return;}
+    preferences_.clipboard_enabled=true;
+    if(!demo_&&!diagnostic_session_){settings_writer_.Request(preferences_);settings_writer_.Flush();}
 }
 void Application::SetTrayTip(const std::wstring& text){
     NOTIFYICONDATAW tray{sizeof(tray)};tray.hWnd=main_;tray.uID=1;tray.uFlags=NIF_TIP;
@@ -473,6 +518,7 @@ void Application::Settings() {
         next.hotkeys_disabled=preferences_.hotkeys_disabled;next.disable_hotkeys_in_game=preferences_.disable_hotkeys_in_game;
         // Update bookkeeping is host-owned and may change while the dialog is open.
         next.update_last_check=preferences_.update_last_check;next.update_mirrors=preferences_.update_mirrors;next.last_run_version=preferences_.last_run_version;
+        next.clipboard_strip_hint_shown=preferences_.clipboard_strip_hint_shown;
         RefreshHotkeys();
         const auto before=EffectiveHotkeys(preferences_,hotkeys_suspended_),after=EffectiveHotkeys(next,hotkeys_suspended_);
         if(!UniqueShortcuts(next)||!ApplyShortcuts(main_,before,after))return false;
@@ -489,6 +535,7 @@ void Application::Settings() {
         // Disable first so a persistence change does not rebuild a store that is going away.
         if(!preferences_.clipboard_enabled)clipboard_panel_->Enable(false,preferences_.Dark());
         clipboard_panel_->SetPersistent(preferences_.clipboard_persist);
+        clipboard_panel_->SetStripVisible(preferences_.clipboard_strip_visible);
     }
     if(clipboard_panel_&&!clipboard_panel_->Enable(preferences_.clipboard_enabled,preferences_.Dark()))Notice(L"剪贴板监听无法启动，请重新开启。");
     if(pins_)pins_->RefreshAppearance();
@@ -531,6 +578,7 @@ void Application::Start() {
 
     if(active_||pending_)return;
     if(longshot_&&longshot_->Active())return; // one live capture at a time
+    const bool translate=std::exchange(translate_request_,false);translate_next_=false;
     capture_started_=Diagnostics::Now();
     element_scanner_.Cancel();element_windows_.clear();element_regions_.clear();
     if(demo_) {
@@ -554,6 +602,8 @@ void Application::Start() {
     document_.Reset();draft_.reset();state_={};static_cast<ToolProperties&>(state_)=preferences_.tools;state_.dark=preferences_.Dark();ResetSessionTool();
     state_.hint=preferences_.include_cursor?L"已包含鼠标指针 · 拖动框选 / 单击窗口 · F 全屏 · A 全部屏幕 · Esc 取消":
         L"拖动框选 / 单击窗口 · F 全屏 · A 全部屏幕 · Esc 取消";
+    translate_capture_=translate;
+    if(translate)state_.hint=L"截图翻译 · 拖动框选要翻译的区域 / 单击窗口 · F 全屏 · Esc 取消";
     const uint64_t generation=++generation_;
     const bool include=preferences_.include_cursor;pending_=true;
     worker_=std::jthread([this,generation,include,cursor=std::move(cursor)](std::stop_token stop) {
@@ -627,7 +677,9 @@ void Application::ResultReady() {
         pins_->CompleteAnnotation(result->editing,std::move(result->frame),std::move(result->annotations),std::move(result->annotation_base),result->recognize);pin_edit_id_=0;pin_edit_source_.reset();Cancel(false);
     }else if(result->pinned) {
         const POINT origin{result->frame.bounds.left,result->frame.bounds.top};
+        const bool translate=std::exchange(translate_next_,false);
         pins_->Create(std::move(result->frame),std::move(result->ocr_frame),origin,std::move(result->annotation_base),std::move(result->annotations),result->recognize);Cancel(false);
+        if(translate)pins_->TranslateLast();
     }else {
         try {
             if(!client_output_.empty()){if(!result->saved)throw std::runtime_error("Capture output was not saved");client_exit_=0;}
@@ -697,6 +749,7 @@ void Application::Cancel(bool close_demo) {
     line_vertices_.clear();state_.polyline_confirmed=0;state_.polyline_active=false;state_.line_snap.reset();
     if(active_){ClosePicker(true);RememberProperties();}FlushProperties();
     const auto edited=std::exchange(pin_edit_id_,0);if(edited)close_demo=false;
+    translate_capture_=false;
     KillTimer(main_,9);toolbar_transition_.Reset();state_.closing_tool=Tool::Select;
     Diagnostics::Get().Flush();
     ++generation_;worker_.request_stop();element_scanner_.Cancel();element_regions_.clear();element_windows_.clear();CommitText(true);ReleaseCapture();magnifier_.Close();
@@ -944,6 +997,8 @@ void Application::PointerUp(View& view,Point point) {
         state_.dragging=false;
         if(std::hypot(point.x-start_.x,point.y-start_.y)<3)state_.selection=WindowAt(NativePoint(start_));
         state_.selected=HasArea(state_.selection);
+        // Translate hotkey: the selection itself is the command; pin, recognize and translate at once.
+        if(state_.selected&&translate_capture_){translate_next_=true;Finish(false,true,true);if(!pending_)translate_next_=false;return;}
         if(state_.selected)state_.hint=preferences_.include_cursor?L"包含原鼠标指针 · 双击选区 / Enter / Ctrl+C 复制 · Ctrl+S 保存 · Esc 取消":L"双击选区 / Enter / Ctrl+C 复制 · Ctrl+S 保存 · Esc 取消";
     }
     if(draft_&&draft_->tool==Tool::Number&&draft_->number_combo==NumberCombo::Leader){
@@ -968,7 +1023,7 @@ void Application::PointerUp(View& view,Point point) {
     if(editing_handle){const auto cursor=ui::SelectionEditCursor(document_,state_,point,GetDpiForWindow(view.window));SetCursor(cursor?cursor:LoadCursorW(nullptr,IDC_ARROW));}
 }
 void Application::Command(int id) {
-    if(!client_output_.empty()&&(id==13||id==15||id==16||id==17)){Notice(L"聊天截图模式：请点击完成，将图片插入聊天。");return;}
+    if(!client_output_.empty()&&(id==13||id==15||id==16||id==17||id==18)){Notice(L"聊天截图模式：请点击完成，将图片插入聊天。");return;}
     if(!state_.busy&&!line_vertices_.empty()){
         if(id==7){UndoPolylinePoint();return;}
         if(id==8)return;
@@ -1037,6 +1092,7 @@ void Application::Command(int id) {
     }
     if(id==13){Finish(false,true);return;}
     if(id==15){if(ocr_available_)Finish(false,true,true);return;}
+    if(id==18){if(ocr_available_&&!pin_edit_id_){translate_next_=true;Finish(false,true,true);if(!pending_)translate_next_=false;}return;}
     if(id==7){document_.Undo();SyncSelectedProperties();}if(id==8){document_.Redo();SyncSelectedProperties();}
     if(id==9)Finish(true);if(id==10||id==12){pin_edit_copy_=pin_edit_id_&&id==10;Finish(false);}if(id==11){Cancel();return;}
     if(id<40)if(auto color=PenToolbarColor(id,state_))state_.ActiveColor()=*color;
@@ -1197,6 +1253,7 @@ void Application::Key(View& view,WPARAM key) {
     if(key==VK_DELETE){document_.DeleteSelected();SyncSelectedProperties();Invalidate();return;}
     if(!state_.selected&&(key=='F'||key=='A')) {
         state_.selection=BoxOf(key=='A'?frame_->bounds:view.bounds);state_.selected=true;
+        if(translate_capture_){translate_next_=true;Finish(false,true,true);if(!pending_)translate_next_=false;return;}
         UpdateToolbar({view.bounds.left,view.bounds.top});UpdateMagnifier();Invalidate();return;
     }
     if(state_.selected) {
@@ -1329,7 +1386,6 @@ LRESULT CALLBACK Application::OverlayProc(HWND window,UINT message,WPARAM wp,LPA
 }
 
 }
-
 
 
 

@@ -3,6 +3,7 @@
 #include "clipboard/quick_window.h"
 #include "clipboard/quick_input.h"
 #include "clipboard/liquid_surface.h"
+#include "clipboard/strip_dismiss.h"
 #include "clipboard/input_focus.h"
 #include "ui/shortcut_label.h"
 #include "clipboard/composition.h"
@@ -100,6 +101,53 @@ struct ClipboardPanel::Impl {
     std::unique_ptr<DibSurface> surface;int width{},height{};uint64_t search_text_glyphs{};
     std::unique_ptr<ClipboardComposition> composition,parked_composition;
     HWND idle_strip{};bool idle_layered{};
+    // Hidden strip: history, the shortcut and the tray entry keep working; only the
+    // edge tab is gone. Dragging the strip onto the close target hides it.
+    bool strip_hidden{};std::function<void()> strip_dismissed;
+    clipboard::DismissTracker dismiss_tracker;std::unique_ptr<clipboard::DismissTarget> dismiss_target;POINT drag_anchor{};
+    bool UpdateDismiss(POINT point,RECT work){
+        const bool armed=dismiss_tracker.Update(point,work,GetDpiForWindow(window)/96.f);
+        if(dismiss_tracker.Active()&&!test_mode){
+            if(!dismiss_target)dismiss_target=std::make_unique<clipboard::DismissTarget>(owner);
+            dismiss_target->Show(dismiss_tracker.Zone(),dark,window);
+            dismiss_target->SetState(armed,dismiss_tracker.Proximity());
+        }
+        return armed;
+    }
+    // An armed strip sits inside the target; cancelling returns it to its place.
+    void CancelDismiss(){
+        const bool armed=dismiss_tracker.Armed();dismiss_tracker.Reset();
+        if(dismiss_target)dismiss_target->Hide();
+        if(armed&&enabled&&window&&!expanded)Place();
+    }
+    // Nothing of the folded strip stays on screen or in the GPU while it is hidden.
+    void ParkHiddenStrip(){
+        StopOpening(false);StopLiquidDrag(false);
+        if(!window)return;
+        SelectWindow();reveal_window=false;drag_pending=false;
+        if(GetCapture()==window)ReleaseCapture();
+        ShowWindow(window,SW_HIDE);HideIdleStrip();if(search)ShowWindow(search,SW_HIDE);
+        const HWND events=EventWindow();KillTimer(events,4);KillTimer(events,9);KillTimer(events,11);
+        composition.reset();parked_composition.reset();compact_positioned=false;ReleaseRenderer();ClipboardComposition::DropPrewarm();
+    }
+    void DismissStrip(){
+        RECT shown{};const bool on_screen=liquid_surface&&window==folded_window&&IsWindowVisible(folded_window)&&GetWindowRect(folded_window,&shown);
+        if(dismiss_target)dismiss_target->Dismiss(on_screen?liquid_surface->Pixels():nullptr,on_screen?liquid_surface->Width():0,on_screen?liquid_surface->Height():0,shown);
+        dismiss_tracker.Reset();
+        // The strip returns where it was before this drag, not inside the target.
+        anchor=drag_anchor;placed=true;
+        if(!SaveLayout())status=L"位置保存失败，下次启动可能无法恢复";
+        strip_hidden=true;Place();
+        if(strip_dismissed)strip_dismissed();
+    }
+    void SetStripVisible(bool show){
+        if(strip_hidden==!show)return;
+        strip_hidden=!show;
+        if(show&&dismiss_target)dismiss_target->Reset();
+        if(!enabled||!window||expanded)return;
+        if(!show){CancelDismiss();Place();return;}
+        Place();SetTimer(EventWindow(),4,10000,nullptr);
+    }
     // After the 10 s renderer trim, a folded strip left alone this long hands off to the
     // layered copy and releases the ~28 MB D3D11 device (recreated in ~75 ms on use).
     static constexpr UINT IdleStripDelayMs=60000;
@@ -333,7 +381,7 @@ struct ClipboardPanel::Impl {
     void ReflowLiquid(bool dpi_change=false){
         const bool resume=dpi_change&&drag_pending&&!expanded&&GetCapture()==window;
         POINT pointer{};GetCursorPos(&pointer);CloseQuick();StopLiquidDrag(true);
-        if(!resume){drag_pending=false;if(GetCapture()==window)ReleaseCapture();}
+        if(!resume){CancelDismiss();drag_pending=false;if(GetCapture()==window)ReleaseCapture();}
         if(enabled)Place();
         if(resume){drag_start=pointer;drag_rect=VisualBodyBounds();dragged=true;snap_x=snap_y=0;drag_monitor=nullptr;}
     }
@@ -375,6 +423,7 @@ struct ClipboardPanel::Impl {
         StopOpening(false);
         CloseQuick();quick.reset();quick_ids.clear();
         StopLiquidDrag(false);liquid_surface.reset();compact_positioned=false;liquid_backdrop=liquid_failed=false;
+        dismiss_tracker.Reset();dismiss_target.reset();
         win_v_shortcut.Reset();
         if(foreground_hook){foreground_observers.erase(foreground_hook);UnhookWinEvent(foreground_hook);foreground_hook=nullptr;}
         if(ime_hook){foreground_observers.erase(ime_hook);UnhookWinEvent(ime_hook);ime_hook=nullptr;}ime_windows.clear();
@@ -557,6 +606,7 @@ struct ClipboardPanel::Impl {
     void Place(bool animate=false){
         // From the idle strip the D3D11 device is gone; create it on a worker while this thread renders.
         if(expanded)ClipboardComposition::Prewarm();
+        if(!expanded&&strip_hidden){ParkHiddenStrip();return;}
         StopOpening(false);
         const RECT from=VisualBodyBounds();
         animate=animate&&expanded&&window==folded_window&&IsWindowVisible(window)&&MotionEnabled()&&!liquid_failed;
@@ -598,7 +648,7 @@ struct ClipboardPanel::Impl {
         const float thumb=ScrollThumb(),top=ListTop+(ListBottom-ListTop-thumb)*scroll/static_cast<float>(visible.size()-static_cast<size_t>(PageRows()));
         scroll_grab=y>=top&&y<=top+thumb?y-top:thumb/2;scroll_drag=true;SetCapture(window);ScrollAt(y);
     }
-    void BeginDrag(POINT point){StopLiquidDrag(false);snap_x=snap_y=0;drag_monitor=nullptr;drag_start=point;drag_rect=VisualBodyBounds();drag_pending=true;dragged=false;SetCapture(window);}
+    void BeginDrag(POINT point){StopLiquidDrag(false);drag_anchor=anchor;if(expanded)dismiss_tracker.Reset();else dismiss_tracker.Begin(point);snap_x=snap_y=0;drag_monitor=nullptr;drag_start=point;drag_rect=VisualBodyBounds();drag_pending=true;dragged=false;SetCapture(window);}
     void Drag(POINT point){
         if(!drag_pending)return;const LONG dx=point.x-drag_start.x,dy=point.y-drag_start.y;
         if(!dragged&&std::abs(dx)<GetSystemMetrics(SM_CXDRAG)&&std::abs(dy)<GetSystemMetrics(SM_CYDRAG))return;
@@ -610,10 +660,16 @@ struct ClipboardPanel::Impl {
             y=clipboard::SnapAxis(y,r.top,std::max(r.top,r.bottom-h),dpi,snap_y);
         }
         anchor={x+w,y};placed=true;
+        if(!expanded&&UpdateDismiss(point,r)){
+            // Armed: the strip is pulled into the close target.
+            anchor=drag_anchor;const RECT goal=dismiss_tracker.Magnet(w,h);
+            if(!test_mode&&!liquid_failed&&MotionEnabled()){MoveLiquidDrag(goal,point,r,GetTickCount64());return;}
+            compact_positioned=false;SetWindowPos(window,nullptr,goal.left,goal.top,w,h,SWP_NOZORDER|SWP_NOACTIVATE);Invalidate();return;
+        }
         if(!expanded&&!test_mode&&!liquid_failed&&MotionEnabled()){MoveLiquidDrag({x,y,x+w,y+h},point,r,GetTickCount64());return;}
         compact_positioned=false;SetWindowPos(window,nullptr,x,y,w,h,SWP_NOZORDER|SWP_NOACTIVATE);Invalidate();
     }
-    void EndDrag(){const bool click=drag_pending&&!dragged&&!expanded;const bool save=drag_pending&&dragged;drag_pending=false;ReleaseCapture();ReleaseLiquidDrag();if(save&&!SaveLayout()){status=L"位置保存失败，下次启动可能无法恢复";Invalidate();}if(click)Show();}
+    void EndDrag(){const bool click=drag_pending&&!dragged&&!expanded;const bool save=drag_pending&&dragged;const bool dismiss=save&&!expanded&&dismiss_tracker.Armed();drag_pending=false;if(dismiss)dismiss_tracker.Reset();ReleaseCapture();if(dismiss){DismissStrip();return;}ReleaseLiquidDrag();CancelDismiss();if(save&&!SaveLayout()){status=L"位置保存失败，下次启动可能无法恢复";Invalidate();}if(click)Show();}
     void RememberTarget(HWND candidate){
         if(!IsWindow(candidate)||candidate==window||candidate==native_window||candidate==folded_window||(idle_strip&&candidate==idle_strip)||candidate==owner||(quick&&candidate==quick->Window())||IsChild(native_window?native_window:window,candidate)||preview.OwnsWindow(candidate)||candidate==GetDesktopWindow()||candidate==GetShellWindow())return;
         if(owner&&GetAncestor(candidate,GA_ROOTOWNER)==owner)return;
@@ -1109,6 +1165,7 @@ struct ClipboardPanel::Impl {
     }
     void Present(){
         if(opening||liquid_drag_active||!enabled)return;
+        if(!expanded&&strip_hidden)return;
         SelectWindow();
         struct Reveal {Impl& p;int exceptions=std::uncaught_exceptions();~Reveal(){if(p.reveal_window&&std::uncaught_exceptions()==exceptions){p.reveal_window=false;ShowWindow(p.window,SW_SHOWNOACTIVATE);}}} reveal{*this};
         if(!expanded&&!liquid_failed){const RECT body=VisualBodyBounds();try{PresentFolded();return;}catch(...){
@@ -1520,7 +1577,7 @@ struct ClipboardPanel::Impl {
         case WM_TIMER:if(wp==10){p->OpeningTick(GetTickCount64());return 0;}if(wp==9){p->LiquidDragTick(GetTickCount64());return 0;}if(wp==8){p->ShortcutFocusTick();return 0;}if(wp==7){if(p->quick_active&&(!p->QuickDestinationValid()||p->hotkeys_suspended||(p->hotkey_allowed&&!p->hotkey_allowed())))p->CloseQuick();return 0;}if(wp==6){KillTimer(w,6);if(p->status==L"已固定 · F2 取消固定"||p->status==L"已取消固定 · F2 固定面板"){p->status.clear();p->Invalidate();}return 0;}if(wp==5){KillTimer(w,5);return 0;}if(wp==4){KillTimer(w,4);if(!p->expanded&&!p->opening&&!p->liquid_drag_active){if(p->composition)p->composition->TrimIdle();p->parked_composition.reset();p->ReleaseRenderer();if(p->idle_layered)ClipboardComposition::DropPrewarm();else SetTimer(w,11,IdleStripDelayMs,nullptr);}return 0;}if(wp==11){KillTimer(w,11);if(!p->expanded&&!p->opening&&!p->liquid_drag_active){p->ReleaseRenderer();p->EnterIdleStrip();if(p->idle_layered)ClipboardComposition::DropPrewarm();}return 0;}if(wp==3){if(GetFocus()==p->search){p->caret_on=!p->caret_on;p->Invalidate();}else KillTimer(w,3);return 0;}if(wp==1)p->Read();if(wp==2)p->PasteTick();return 0;
         case WM_LBUTTONDOWN:p->RememberTarget(GetForegroundWindow());p->paste_click.reset();if(p->popup_open){const float mx=GET_X_LPARAM(lp)/p->scale,my=GET_Y_LPARAM(lp)/p->scale;if(p->InsidePopup(mx,my)){const int row=p->PopupHit(mx,my);if(row>=0)p->ChoosePopup(row);}else p->ClosePopup();return 0;}if(p->menu_open){const float mx=GET_X_LPARAM(lp)/p->scale,my=GET_Y_LPARAM(lp)/p->scale;const int row=p->MenuHit(mx,my);if(row>=0)p->ChooseMore(row);else if(mx<p->W-264||mx>p->W-16||my<64||my>252)p->CloseMore();return 0;}{const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;if(p->expanded&&p->visible.size()>static_cast<size_t>(p->PageRows())&&x>=p->W-12&&y>=p->ListTop&&y<=p->ListBottom){p->BeginScroll(y);return 0;}if(!p->expanded||p->HeaderDragHit(x,y)){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(w,&point);p->BeginDrag(point);return 0;}}if(!p->pinned||GetForegroundWindow()==w)SetFocus(w);for(auto it=p->hits.rbegin();it!=p->hits.rend();++it){const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;const auto r=it->rect;if(x>=r.left&&x<r.right&&y>=r.top&&y<r.bottom){const auto h=*it;if(p->pinned&&(h.action==30||h.action==33)&&!p->preview.IsOpen())p->paste_click=h;else p->Action(h.action,h.id);break;}}return 0;
         case WM_LBUTTONUP:if(p->paste_click){const auto hit=*p->paste_click;p->paste_click.reset();const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;if(x>=hit.rect.left&&x<hit.rect.right&&y>=hit.rect.top&&y<hit.rect.bottom)p->Action(hit.action,hit.id);return 0;}if(p->scroll_drag){p->ScrollAt(GET_Y_LPARAM(lp)/p->scale);p->scroll_drag=false;ReleaseCapture();return 0;}if(p->drag_pending){p->EndDrag();return 0;}break;
-        case WM_CAPTURECHANGED:case WM_CANCELMODE:p->paste_click.reset();p->drag_pending=p->scroll_drag=false;p->ReleaseLiquidDrag();p->CloseMore();p->ClosePopup();return 0;
+        case WM_CAPTURECHANGED:case WM_CANCELMODE:p->paste_click.reset();p->drag_pending=p->scroll_drag=false;p->ReleaseLiquidDrag();p->CancelDismiss();p->CloseMore();p->ClosePopup();return 0;
         case WM_MOUSEMOVE:{if(w==p->folded_window&&!p->expanded){if(p->idle_layered)ClipboardComposition::Prewarm();SetTimer(p->EventWindow(),4,10000,nullptr);}if(p->scroll_drag){p->ScrollAt(GET_Y_LPARAM(lp)/p->scale);return 0;}if(p->menu_open){const int row=p->MenuHit(GET_X_LPARAM(lp)/p->scale,GET_Y_LPARAM(lp)/p->scale);if(row!=p->menu_hover){p->menu_hover=row;p->Invalidate();}return 0;}if(p->popup_open){const int row=p->PopupHit(GET_X_LPARAM(lp)/p->scale,GET_Y_LPARAM(lp)/p->scale);if(row!=p->popup_hover){p->popup_hover=row;p->Invalidate();}return 0;}if(p->drag_pending){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(w,&point);p->Drag(point);return 0;}int hit=-1;const float x=GET_X_LPARAM(lp)/p->scale,y=GET_Y_LPARAM(lp)/p->scale;for(size_t i=0;i<p->hits.size();++i){const auto r=p->hits[i].rect;if(x>=r.left&&x<r.right&&y>=r.top&&y<r.bottom)hit=static_cast<int>(i);}if(hit!=p->hover){p->hover=hit;const wchar_t* hint=L"";if(hit>=0){switch(p->hits[static_cast<size_t>(hit)].action){case 31:hint=L"收藏 / 取消收藏 · Ctrl+D";break;case 32:hint=L"复制内容 · Ctrl+C";break;case 33:hint=L"Enter 粘贴 · Shift+Enter 纯文本";break;case 34:hint=L"删除记录 · Delete";break;case 35:hint=L"移到分组 · Ctrl+G · Ctrl+1–9";break;case 40:hint=L"右键可重命名、更换颜色或删除分组";break;case 41:hint=L"新建分组 · Ctrl+Shift+N";break;case 10:hint=L"固定 / 取消固定面板 · F2";break;case 14:hint=L"折叠到屏幕边缘 · Esc";break;default:break;}}p->status=hint;p->Invalidate();}return 0;}
         case WM_MOUSEWHEEL:if(p->preview.ForwardWheel(wp,lp))return 0;if(p->menu_open||p->popup_open)return 0;{POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(w,&point);const float x=point.x/p->scale,y=point.y/p->scale;if(p->expanded&&y>=130&&y<168&&x<p->W-92){p->tab_scroll=std::clamp(p->tab_scroll-GET_WHEEL_DELTA_WPARAM(wp)/static_cast<float>(WHEEL_DELTA)*48.f,0.f,p->tab_scroll_max);p->Invalidate();return 0;}}p->scroll=std::clamp(p->scroll-GET_WHEEL_DELTA_WPARAM(wp)/WHEEL_DELTA,0,std::max(0,static_cast<int>(p->visible.size())-p->PageRows()));p->Invalidate();return 0;
         case WM_KEYDOWN:{const bool ctrl_key=(GetKeyState(VK_CONTROL)&0x8000)&&(wp=='D'||wp=='G'||wp=='N'||(wp>='0'&&wp<='9'));if((wp!=VK_SPACE&&wp!=VK_F2&&wp!=VK_RETURN&&!ctrl_key)||!(lp&(1LL<<30)))p->Key(wp);return 0;}
@@ -1555,4 +1612,6 @@ bool ClipboardPanel::Enable(bool enabled,bool dark){return impl_->Enable(enabled
 bool ClipboardPanel::SetPersistent(bool persistent){return impl_->SetPersistent(persistent);}
 void ClipboardPanel::Show(){impl_->Show();}
 void ClipboardPanel::SetHotkeysSuspended(bool suspended){impl_->SetHotkeysSuspended(suspended);}
+void ClipboardPanel::SetStripVisible(bool visible){impl_->SetStripVisible(visible);}
+void ClipboardPanel::SetStripDismissedHandler(std::function<void()> handler){impl_->strip_dismissed=std::move(handler);}
 }

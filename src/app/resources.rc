@@ -15,12 +15,15 @@ BEGIN
     CONTROL "GIF 快捷键", 119, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "录屏快捷键", 120, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "剪贴板快捷键", 128, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "翻译快捷键", 133, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "引擎设置…", 134, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "包含鼠标指针", 101, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "截图粘贴为文件", 115, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "开机自启动", 127, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "自动检查更新", 130, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "检查更新", 131, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "开启剪贴板", 126, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "显示剪贴板侧边条", 132, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "退出后保留剪贴板历史", 129, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "PNG", 116, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "JPEG", 117, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1

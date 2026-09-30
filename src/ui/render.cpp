@@ -214,6 +214,10 @@ void Renderer::Icon(int index, Box rect, uint32_t color) {
         target_->DrawLine({cx+x1*unit,cy+y1*unit},{cx+x2*unit,cy+y2*unit},brush_.Get(),1.65f*unit);
     };
     switch(index) {
+    case 18:
+        // Translate: a Han-like glyph on the left, a Latin "A" on the right.
+        line(-10,-7,-1,-7);line(-5.5f,-10,-5.5f,-7);line(-9,-4,-2,3);line(-2,-4,-9,3);
+        line(1,9,5,-2);line(5,-2,9,9);line(2.6f,5,7.4f,5);break;
     case 17:
         // Long capture: a page continuing below the frame, with a downward arrow.
         line(-7,-9,7,-9);line(-7,-9,-7,1);line(7,-9,7,1);line(-7,4,-7,6);line(7,4,7,6);

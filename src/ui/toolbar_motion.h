@@ -6,7 +6,7 @@
 
 namespace lumashot::ui {
 // Toolbar action ids 0..16 plus 17 (long capture).
-inline constexpr size_t ToolbarSlots=18;
+inline constexpr size_t ToolbarSlots=19;
 struct ToolbarMotionFrame {
     Box indicator{};
     std::array<float,ToolbarSlots> hover{},press{};

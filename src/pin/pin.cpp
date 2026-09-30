@@ -8,6 +8,9 @@
 #include "ui/themed_message.h"
 #include "ui/memory_target.h"
 #include "ocr/availability.h"
+#include "pin/translation.h"
+#include "pin/translation_panel.h"
+#include "translate/service.h"
 #include <windowsx.h>
 #include <commdlg.h>
 #include <algorithm>
@@ -29,6 +32,15 @@ struct PinManager::Pin {
     ULONGLONG zoom_started{},zoom_frame_time{},zoom_badge_until{};bool zoom_animating{};
     std::unique_ptr<DibSurface> surface;int surface_width{},surface_height{};
     PinStyle style{DefaultPinStyle};
+    struct Translation {
+        TranslationView::State state{TranslationView::State::Idle};uint64_t job{};
+        translate::Language requested{translate::Language::Auto},source{translate::Language::Auto},target{translate::Language::ChineseSimplified};
+        std::vector<translate::Block> blocks;std::vector<std::wstring> results;std::wstring error,engine;
+        std::shared_ptr<const Frame> image;bool show{};std::unique_ptr<TranslationPanel> panel;
+    } tr;
+    // The frame the pin currently shows, copies and saves: the translated
+    // rendering while it is toggled on, otherwise the original image.
+    std::shared_ptr<const Frame> Shown()const{return tr.show&&tr.image?tr.image:image;}
     PaperLayout paper,shadow_layout;Frame shadow_image;ComPtr<ID2D1Bitmap> shadow_bitmap;unsigned shadow_builds{};
     Point offset{};POINT destination{};bool relocating{},presenting{};
     int Inset()const{return paper.inset+paper.shadow;}
@@ -79,7 +91,7 @@ void PinManager::Create(Frame image,Frame ocr_image,POINT position,std::optional
     if(restored){pin->annotation_base=restored->base;pin->annotations.marks=restored->annotations;pin->marks=restored->decorations;pin->locked=restored->locked;}
     pin->style=restored?restored->style:sticker_style?NormalizePinStyle(static_cast<int>(sticker_style())):DefaultPinStyle;
     pin->paper=MakePaperLayout(pin->image->Width(),pin->image->Height(),96,pin->style);
-    const uint64_t id=pin->id;auto* p=pin.get();pins_.emplace(id,std::move(pin));
+    const uint64_t id=pin->id;auto* p=pin.get();pins_.emplace(id,std::move(pin));last_created_=id;
     p->window=CreateWindowExW(WS_EX_LAYERED|WS_EX_TOPMOST|WS_EX_TOOLWINDOW,L"LumaShot.Pin",L"LumaShot 贴图",WS_POPUP,
         position.x-p->Inset(),position.y-p->Inset(),p->CanvasWidth(),p->CanvasHeight(),nullptr,nullptr,GetModuleHandleW(nullptr),p);
     if(!p->window){pins_.erase(id);CheckWin32(false,"Create pinned image");}
@@ -131,6 +143,10 @@ void PinManager::Ready() {
         const auto it=pins_.find(result.id);if(it==pins_.end()||it->second->version!=result.version||!it->second->window)continue;
         auto& p=*it->second;p.text=std::move(result.text);p.recognizing=false;
         p.status=!result.error.empty()?L"识别失败 · 右键可重试":(p.text.lines.empty()?L"未识别到文字":L"");
+        if(p.tr.state==TranslationView::State::WaitingOcr){
+            if(!result.error.empty()){p.tr.state=TranslationView::State::Failed;p.tr.error=L"文字识别失败："+result.error;UpdatePanel(p);}
+            else StartTranslation(p);
+        }
         InvalidateRect(p.window,nullptr,FALSE);
     }
     std::erase_if(pins_,[](const auto& item){return !item.second->window;});
@@ -143,7 +159,7 @@ void PinManager::ApplyPaper(Pin& p,Point origin){
     }
     p.paper=layout;p.destination={LONG(std::floor(origin.x)),LONG(std::floor(origin.y))};
     p.offset={origin.x-p.destination.x,origin.y-p.destination.y};p.relocating=true;
-    Paint(p);UpdateTools(p);
+    Paint(p);UpdateTools(p);PlacePanel(p);
 }
 void PinManager::RefreshAppearance(){
     const auto style=sticker_style?NormalizePinStyle(static_cast<int>(sticker_style())):DefaultPinStyle;
@@ -169,7 +185,7 @@ void PinManager::Paint(Pin& p) {
     }
     if(!p.bitmap){
         const auto bmp=D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_IGNORE),96,96);
-        CheckWin32(SUCCEEDED(p.target->CreateBitmap(D2D1::SizeU(p.image->Width(),p.image->Height()),p.image->pixels.data(),p.image->Width()*4,bmp,&p.bitmap)),"Create pin image");++p.bitmap_uploads;
+        const auto shown=p.Shown();CheckWin32(SUCCEEDED(p.target->CreateBitmap(D2D1::SizeU(shown->Width(),shown->Height()),shown->pixels.data(),shown->Width()*4,bmp,&p.bitmap)),"Create pin image");++p.bitmap_uploads;
     }
     Draw(p,p.target.Get());RECT rect{};GetWindowRect(p.window,&rect);POINT origin=p.relocating?p.destination:POINT{rect.left,rect.top},source{};SIZE size{p.CanvasWidth(),p.CanvasHeight()};BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
     p.presenting=true;const BOOL ok=UpdateLayeredWindow(p.window,nullptr,&origin,&size,p.surface->Dc(),&source,0,&blend,ULW_ALPHA);p.presenting=false;p.relocating=false;
@@ -203,7 +219,7 @@ void PinManager::Draw(Pin& p,ID2D1RenderTarget* target) {
     target->SetTransform(D2D1::Matrix3x2F::Scale(p.zoom,p.zoom)*D2D1::Matrix3x2F::Translation(p.Inset()+p.offset.x,p.Inset()+p.offset.y));
     ComPtr<ID2D1Bitmap> bitmap;if(target==p.target.Get())bitmap=p.bitmap;
     const auto props=D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_IGNORE),96,96);
-    if(!bitmap)CheckWin32(SUCCEEDED(target->CreateBitmap(D2D1::SizeU(static_cast<UINT>(p.image->Width()),static_cast<UINT>(p.image->Height())),p.image->pixels.data(),static_cast<UINT>(p.image->Width()*4),props,bitmap.GetAddressOf())),"Render pinned image");
+    if(!bitmap){const auto shown=p.Shown();CheckWin32(SUCCEEDED(target->CreateBitmap(D2D1::SizeU(static_cast<UINT>(shown->Width()),static_cast<UINT>(shown->Height())),shown->pixels.data(),static_cast<UINT>(shown->Width()*4),props,bitmap.GetAddressOf())),"Render pinned image");}
     target->DrawBitmap(bitmap.Get(),D2D1::RectF(0,0,float(p.image->Width()),float(p.image->Height())));
     DrawTextMarks(target,p.marks);
     brush->SetColor(D2D1::ColorF(0x3388ff,0.32f));
@@ -226,7 +242,7 @@ void PinManager::Save(Pin& p) {
     wchar_t filename[32768]=L"LumaShot-pin.png";OPENFILENAMEW dialog{sizeof(dialog)};
     dialog.hwndOwner=p.window;dialog.lpstrFilter=L"PNG 图片 (*.png)\0*.png\0\0";dialog.lpstrFile=filename;dialog.nMaxFile=32768;dialog.lpstrDefExt=L"png";dialog.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
     if(!GetSaveFileNameW(&dialog))return;
-    const auto image=p.image;const auto marks=p.marks;const auto id=p.id;const HWND host=host_;const std::filesystem::path path=filename;p.saving=true;
+    const auto image=p.Shown();const auto marks=p.marks;const auto id=p.id;const HWND host=host_;const std::filesystem::path path=filename;p.saving=true;
     saves_.push_back(std::async(std::launch::async,[image,marks,id,path,host] {
         SaveResult result;result.id=id;const HRESULT com=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
         std::filesystem::path temp=path;temp+=L".lumashot-pin-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(id)+L".tmp";
@@ -242,7 +258,7 @@ void PinManager::Save(Pin& p) {
 }
 void PinManager::Copy(Pin& p){
     if(p.saving)return;p.saving=true;
-    const auto image=p.image;const auto marks=p.marks;const auto id=p.id;const auto host=host_;const int format=clipboard_format?clipboard_format():-1;
+    const auto image=p.Shown();const auto marks=p.marks;const auto id=p.id;const auto host=host_;const int format=clipboard_format?clipboard_format():-1;
     saves_.push_back(std::async(std::launch::async,[image,marks,id,host,format]{
         SaveResult result;result.id=id;const HRESULT com=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
         try{CheckWin32(SUCCEEDED(com),"Initialize clipboard export");Frame flattened;const Frame* source=image.get();if(!marks.empty()){flattened=FlattenTextMarks(*image,marks);source=&flattened;}auto file=format>=0?PrepareClipboardFile(*source,format):nullptr;result.clipboard_image=PrepareClipboardImage(*source,file);}
@@ -275,8 +291,8 @@ void PinManager::Menu(Pin& source,POINT point) {
     const auto id=source.id;
     if(point.x==-1&&point.y==-1){RECT r{};GetWindowRect(source.window,&r);point={r.left+source.Inset()+16,r.top+source.Inset()+16};}
     PinMenuModel model;model.dark=dark_theme?dark_theme():false;model.status=source.status;model.locked=source.locked;model.recognized=source.ocr_enabled;model.table=source.text.table.has_value();
-    model.ocr_available=ocr::Available();
-    model.enabled={bool(annotate)&&!source.editing,true,!source.selection.Empty(),!source.text.lines.empty(),model.table,true,!source.saving,!source.recognizing&&model.ocr_available,true};
+    model.ocr_available=ocr::Available();model.translated=source.tr.state==TranslationView::State::Done;
+    model.enabled={bool(annotate)&&!source.editing,true,!source.selection.Empty(),!source.text.lines.empty(),model.table,true,!source.saving,!source.recognizing&&model.ocr_available,model.ocr_available&&!source.editing,true};
     if(source.tools)ShowWindow(source.tools,SW_HIDE);
     const int command=TrackPinMenu(source.window,point,model);
     // OCR notifications may remove a closed pin during the popup's message loop.
@@ -285,7 +301,7 @@ void PinManager::Menu(Pin& source,POINT point) {
     if(command==1)CopyText(p.window,ocr::Selected(p.text,p.selection));if(command==2)CopyText(p.window,ocr::Selected(p.text,ocr::All(p.text)));
     if(command==9&&p.text.table)CopyText(p.window,ocr::TableTsv(*p.text.table));
     if(command==3)Copy(p);if(command==4)Save(p);if(command==5)Recognize(p);
-    if(command==6){DestroyWindow(p.window);return;}if(command==7)Annotate(p);if(command==8)ToggleLock(p);UpdateTools(p);
+    if(command==6){DestroyWindow(p.window);return;}if(command==10)TranslatePin(p);if(command==7)Annotate(p);if(command==8)ToggleLock(p);UpdateTools(p);
 }
 void PinManager::ToggleLock(Pin& p){
     p.locked=!p.locked;KillTimer(p.window,101);p.zoom_animating=false;p.zoom_goal=p.zoom;p.moving=p.selecting=false;
@@ -297,7 +313,7 @@ void PinManager::Annotate(Pin& p){
     if(GetCapture()==p.window)ReleaseCapture();
     POINT origin{};ClientToScreen(p.window,&origin);auto a=p.WindowPoint({0,0}),b=p.WindowPoint({float(p.image->Width()),float(p.image->Height())});
     RECT bounds{origin.x+LONG(std::lround(a.x)),origin.y+LONG(std::lround(a.y)),origin.x+LONG(std::lround(b.x)),origin.y+LONG(std::lround(b.y))};
-    p.editing=true;if(p.tools)ShowWindow(p.tools,SW_HIDE);
+    p.editing=true;if(p.tools)ShowWindow(p.tools,SW_HIDE);if(p.tr.panel)p.tr.panel->Hide();
     try{
         // Entering annotate must not copy the pin image twice on the UI thread.
         // Without text marks the shared source is forwarded with no copy at all.
@@ -308,7 +324,7 @@ void PinManager::CompleteAnnotation(uint64_t id,std::optional<Frame> image,Docum
     const auto found=pins_.find(id);if(found==pins_.end()||!found->second->window)return;auto& p=*found->second;p.editing=false;
     if(base)base->bounds={0,0,base->Width(),base->Height()};
     if(image){++p.revision;image->bounds={0,0,image->Width(),image->Height()};p.image=std::make_shared<Frame>(std::move(*image));p.ocr_image=p.image;p.annotation_base=base?std::make_shared<Frame>(std::move(*base)):p.image;p.annotations=std::move(annotations);p.marks.clear();p.undo.clear();p.bitmap.Reset();p.target.Reset();p.shadow_bitmap.Reset();
-        service_.Cancel(p.id);++p.version;p.text={};p.selection={};p.recognizing=false;p.status.clear();
+        ResetTranslation(p);service_.Cancel(p.id);++p.version;p.text={};p.selection={};p.recognizing=false;p.status.clear();
         if(p.ocr_enabled||recognize)Recognize(p);}
     UpdateTools(p);InvalidateRect(p.window,nullptr,FALSE);SetForegroundWindow(p.window);SessionChanged();
 }
@@ -386,7 +402,7 @@ LRESULT CALLBACK PinManager::Proc(HWND window,UINT message,WPARAM wp,LPARAM lp) 
             if(wp==103){KillTimer(window,103);p->manager->SessionChanged();return 0;}
             if(wp==102){KillTimer(window,102);p->zoom_badge_until=0;InvalidateRect(window,nullptr,FALSE);return 0;}break;
         case WM_DPICHANGED:{p->dpi=float(HIWORD(wp));const auto* r=reinterpret_cast<RECT*>(lp);p->manager->ApplyPaper(*p,{float(r->left),float(r->top)});return 0;}
-        case WM_MOVE:if(!p->presenting&&!p->moving){p->manager->UpdateTools(*p);if(p->manager->session_writer_&&!p->manager->restoring_session_)SetTimer(window,103,180,nullptr);}return 0;
+        case WM_MOVE:if(!p->presenting)p->manager->PlacePanel(*p);if(!p->presenting&&!p->moving){p->manager->UpdateTools(*p);if(p->manager->session_writer_&&!p->manager->restoring_session_)SetTimer(window,103,180,nullptr);}return 0;
         case WM_SETCURSOR:if(LOWORD(lp)==HTCLIENT){POINT pt{};GetCursorPos(&pt);ScreenToClient(window,&pt);SetCursor(LoadCursorW(nullptr,ocr::OnText(p->text,p->ImagePoint(MAKELPARAM(pt.x,pt.y)))&&!(GetKeyState(VK_SPACE)&0x8000)?IDC_IBEAM:IDC_ARROW));return TRUE;}break;
         case WM_LBUTTONDOWN:case WM_LBUTTONDBLCLK:{
             if(p->editing)return 0;KillTimer(window,101);p->zoom_animating=false;p->zoom_goal=p->zoom;SetFocus(window);
@@ -428,18 +444,130 @@ LRESULT CALLBACK PinManager::Proc(HWND window,UINT message,WPARAM wp,LPARAM lp) 
                 if(wp==VK_ESCAPE){SendMessageW(window,WM_CLOSE,0,0);return 0;}
                 if(wp==VK_SPACE){p->manager->Annotate(*p);return 0;}
                 if(wp=='L'){p->manager->ToggleLock(*p);return 0;}
+                if(wp=='T'&&ocr::Available()&&!p->editing){p->manager->TranslateKey(*p);return 0;}
             }
             if(GetKeyState(VK_CONTROL)&0x8000){if(wp=='A'){p->selection=ocr::All(p->text);p->manager->UpdateTools(*p);InvalidateRect(window,nullptr,FALSE);}if(wp=='C')CopyText(window,ocr::Selected(p->text,p->selection));if(wp=='Z'&&!p->undo.empty()){p->marks=std::move(p->undo.back());p->undo.pop_back();++p->revision;p->manager->SessionChanged();InvalidateRect(window,nullptr,FALSE);}}return 0;
         case WM_QUERYENDSESSION:p->manager->FlushSession();return TRUE;
         case WM_ENDSESSION:if(wp)p->manager->PreserveSession();return 0;
         case WM_CLOSE:DestroyWindow(window);return 0;
         case WM_DESTROY:KillTimer(window,103);KillTimer(window,101);KillTimer(window,102);p->zoom_animating=false;p->moving=p->selecting=false;p->selection={};return 0;
-        case WM_NCDESTROY:if(p->tools)DestroyWindow(p->tools);p->manager->service_.Cancel(p->id);p->window=nullptr;if(!p->manager->preserving_session_&&!p->manager->restoring_session_){p->manager->SessionChanged();p->manager->FlushSession();}p->image.reset();p->ocr_image.reset();p->text={};p->target.Reset();p->bitmap.Reset();SetWindowLongPtrW(window,GWLP_USERDATA,0);PostMessageW(p->manager->host_,kOcrReady,0,0);break;
+        case WM_NCDESTROY:if(p->tools)DestroyWindow(p->tools);if(p->tr.job&&p->manager->translator_)p->manager->translator_->Cancel(p->tr.job);p->tr.job=0;p->tr.image.reset();p->manager->service_.Cancel(p->id);p->window=nullptr;if(!p->manager->preserving_session_&&!p->manager->restoring_session_){p->manager->SessionChanged();p->manager->FlushSession();}p->image.reset();p->ocr_image.reset();p->text={};p->target.Reset();p->bitmap.Reset();SetWindowLongPtrW(window,GWLP_USERDATA,0);PostMessageW(p->manager->host_,kOcrReady,0,0);break;
         }
     }catch(const std::exception& e){ui::ShowThemedMessage(window,p->manager->dark_theme&&p->manager->dark_theme(),L"LumaShot",ocr::ErrorMessage(e));}
     return DefWindowProcW(window,message,wp,lp);
 }
+PinManager::Pin* PinManager::FindPin(uint64_t id){const auto it=pins_.find(id);return it!=pins_.end()&&it->second->window?it->second.get():nullptr;}
+void PinManager::TranslateLast(){if(auto* p=FindPin(last_created_))TranslatePin(*p);}
+void PinManager::TranslatePin(Pin& p){
+    using State=TranslationView::State;
+    if(p.tr.state==State::Done){if(!p.tr.show)ShowTranslation(p,true);UpdatePanel(p);return;}
+    if(p.tr.state==State::Running||p.tr.state==State::WaitingOcr){UpdatePanel(p);return;}
+    StartOrWait(p);
 }
-
+void PinManager::TranslateKey(Pin& p){
+    if(p.tr.state==TranslationView::State::Done){ShowTranslation(p,!p.tr.show);return;}
+    TranslatePin(p);
+}
+void PinManager::StartOrWait(Pin& p){
+    using State=TranslationView::State;
+    const auto config=translate::LoadConfig(translate::DefaultConfigPath());
+    std::wstring reason;
+    if(!translate::Resolve(config,&reason)){
+        p.tr.state=State::NeedsSetup;p.tr.error=reason;p.tr.engine.clear();UpdatePanel(p);
+        // First use: open the guided settings once per session; later the panel offers it.
+        if(!settings_prompted_&&open_translation_settings){settings_prompted_=true;open_translation_settings();}
+        return;
+    }
+    if(!ocr::Available()){p.tr.state=State::Failed;p.tr.error=L"文字识别组件不可用，无法翻译";UpdatePanel(p);return;}
+    if(!p.ocr_enabled||p.recognizing){if(!p.ocr_enabled)Recognize(p);p.tr.state=State::WaitingOcr;UpdatePanel(p);return;}
+    StartTranslation(p);
+}
+void PinManager::StartTranslation(Pin& p){
+    using State=TranslationView::State;
+    const auto config=translate::LoadConfig(translate::DefaultConfigPath());
+    std::wstring reason;auto credentials=translate::Resolve(config,&reason);
+    if(!credentials){p.tr.state=State::NeedsSetup;p.tr.error=reason;UpdatePanel(p);return;}
+    p.tr.engine=std::wstring(credentials->preset->label);
+    p.tr.blocks=translate::BuildBlocks(p.text);p.tr.results.clear();
+    if(p.tr.blocks.empty()){p.tr.state=State::Failed;p.tr.error=L"图片中没有识别到可翻译的文字";UpdatePanel(p);return;}
+    std::wstring all;for(const auto& block:p.tr.blocks){all+=block.text;all+=L'\n';}
+    p.tr.source=translate::Detect(all);
+    p.tr.target=translate::ResolveTarget(p.tr.requested!=translate::Language::Auto?p.tr.requested:config.target,p.tr.source);
+    translate::Job job;job.source=p.tr.source;job.target=p.tr.target;
+    for(const auto& block:p.tr.blocks)job.texts.push_back(block.text);
+    if(!translator_)translator_=std::make_unique<translate::Service>(host_,kTranslateReady);
+    if(p.tr.job)translator_->Cancel(p.tr.job);
+    p.tr.job=translator_->Submit(std::move(*credentials),std::move(job));
+    p.tr.state=State::Running;p.tr.error.clear();UpdatePanel(p);
+}
+void PinManager::TranslationReady(uint64_t job){
+    if(!translator_||!job)return;
+    auto outcome=translator_->Take(job);
+    if(!outcome)return;
+    Pin* found=nullptr;for(auto& [id,pin]:pins_)if(pin->window&&pin->tr.job==job){found=pin.get();break;}
+    if(!found)return;
+    auto& p=*found;p.tr.job=0;
+    using State=TranslationView::State;
+    if(!outcome->ok||outcome->texts.size()!=p.tr.blocks.size()){p.tr.state=State::Failed;p.tr.error=outcome->error.empty()?L"翻译服务没有返回结果":outcome->error;UpdatePanel(p);return;}
+    p.tr.results=std::move(outcome->texts);
+    try{p.tr.image=std::make_shared<Frame>(pin_translation::Render(*p.image,p.tr.blocks,p.tr.results,p.tr.target));}
+    catch(const std::exception& e){p.tr.image.reset();p.tr.state=State::Failed;p.tr.error=L"译文渲染失败："+ocr::ErrorMessage(e);UpdatePanel(p);return;}
+    p.tr.state=State::Done;ShowTranslation(p,true);
+}
+void PinManager::TranslationConfigChanged(){
+    using State=TranslationView::State;
+    for(auto& [id,pin]:pins_)if(pin->window&&(pin->tr.state==State::NeedsSetup||(pin->tr.state==State::Failed&&pin->tr.panel&&pin->tr.panel->Visible())))StartOrWait(*pin);
+}
+void PinManager::ResetTranslation(Pin& p){
+    if(p.tr.job&&translator_)translator_->Cancel(p.tr.job);
+    const bool had_panel=p.tr.panel&&p.tr.panel->Visible();
+    auto panel=std::move(p.tr.panel);const auto requested=p.tr.requested;
+    p.tr={};p.tr.requested=requested;p.tr.panel=std::move(panel);
+    if(had_panel)p.tr.panel->Hide();
+}
+void PinManager::ShowTranslation(Pin& p,bool show){
+    p.tr.show=show&&p.tr.image;p.bitmap.Reset();p.selection={};UpdateTools(p);
+    if(p.window)Paint(p);
+    UpdatePanel(p);
+}
+void PinManager::EnsurePanel(Pin& p){
+    if(p.tr.panel&&p.tr.panel->Window())return;
+    const auto id=p.id;
+    TranslationPanel::Callbacks callbacks;
+    callbacks.show_translation=[this,id](bool show){if(auto* pin=FindPin(id))ShowTranslation(*pin,show);};
+    callbacks.retarget=[this,id](translate::Language language){
+        auto* pin=FindPin(id);if(!pin)return;pin->tr.requested=language;
+        using State=TranslationView::State;
+        if(pin->tr.state==State::Done||pin->tr.state==State::Failed){pin->tr.show=false;pin->tr.image.reset();pin->bitmap.Reset();Paint(*pin);StartOrWait(*pin);}
+        else UpdatePanel(*pin);
+    };
+    callbacks.retry=[this,id]{if(auto* pin=FindPin(id))StartOrWait(*pin);};
+    callbacks.settings=[this]{if(open_translation_settings)open_translation_settings();};
+    // Closing only hides the panel; the translated rendering stays on the pin.
+    callbacks.closed=[this,id]{if(auto* pin=FindPin(id);pin&&pin->tr.panel)pin->tr.panel->Hide();};
+    p.tr.panel=std::make_unique<TranslationPanel>(p.window,std::move(callbacks));
+}
+void PinManager::UpdatePanel(Pin& p){
+    if(!p.window)return;
+    EnsurePanel(p);
+    TranslationView view;view.state=p.tr.state;view.engine=p.tr.engine;view.error=p.tr.error;view.source=p.tr.source;view.target=p.tr.target;view.requested=p.tr.requested;
+    view.show_translation=p.tr.show;view.dark=dark_theme&&dark_theme();
+    if(p.tr.state==TranslationView::State::Done){for(const auto& block:p.tr.blocks)view.sources.push_back(block.text);view.results=p.tr.results;}
+    else if(p.tr.state==TranslationView::State::Running){for(const auto& block:p.tr.blocks)view.sources.push_back(block.text);}
+    p.tr.panel->Update(view);
+    RECT r{};GetWindowRect(p.window,&r);
+    const LONG left=r.left+p.paper.shadow+LONG(p.offset.x),top=r.top+p.paper.shadow+LONG(p.offset.y);
+    p.tr.panel->Place({left,top,left+p.paper.width,top+p.paper.height});
+    p.tr.panel->Show();
+}
+void PinManager::PlacePanel(Pin& p){
+    if(!p.window||!p.tr.panel||!p.tr.panel->Visible())return;
+    RECT r{};GetWindowRect(p.window,&r);
+    // During ApplyPaper the window has not moved yet; use the pending destination.
+    const POINT origin=p.relocating?p.destination:POINT{r.left,r.top};
+    const LONG left=origin.x+p.paper.shadow+LONG(p.offset.x),top=origin.y+p.paper.shadow+LONG(p.offset.y);
+    p.tr.panel->Place({left,top,left+p.paper.width,top+p.paper.height});
+}
+}
 
 

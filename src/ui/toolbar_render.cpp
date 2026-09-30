@@ -78,8 +78,8 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
         }
         return;
     }
-    if(state.property_drag<0&&(state.hover==0||(state.hover>=7&&state.hover<14)||state.hover==15||state.hover==16||state.hover==17||state.hover==28||state.hover==70)) {
-        constexpr std::array<LPCWSTR,ui::ToolbarSlots> names{L"选择 / 移动 V",L"",L"",L"",L"",L"",L"",L"撤销 Ctrl+Z",L"重做 Ctrl+Y",L"保存 Ctrl+S",L"复制 Ctrl+C",L"取消 Esc",L"完成 Enter",L"置顶贴图",L"",L"识别文字 / 表格",L"录制",L"长截图 L"};
+    if(state.property_drag<0&&(state.hover==0||(state.hover>=7&&state.hover<14)||state.hover==15||state.hover==16||state.hover==17||state.hover==18||state.hover==28||state.hover==70)) {
+        constexpr std::array<LPCWSTR,ui::ToolbarSlots> names{L"选择 / 移动 V",L"",L"",L"",L"",L"",L"",L"撤销 Ctrl+Z",L"重做 Ctrl+Y",L"保存 Ctrl+S",L"复制 Ctrl+C",L"取消 Esc",L"完成 Enter",L"置顶贴图",L"",L"识别文字 / 表格",L"录制",L"长截图 L",L"截图翻译"};
         const float s=state.toolbar.scale;const Box anchor=(state.hover==28||state.hover==70)?state.toolbar.Property(state.hover):state.toolbar.Button(state.hover);
         const RECT monitor=monitor_.right>monitor_.left?monitor_:frame.bounds;
         ui::DrawTooltip(paint,{s,state.dark},(state.hover==28||state.hover==70)?L"自定义颜色":names[state.hover],anchor,
@@ -87,4 +87,3 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
     }
 }
 }
-

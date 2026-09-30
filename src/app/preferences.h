@@ -14,6 +14,10 @@ struct Preferences {
     bool clipboard_enabled{false};
     // Off by default: history lives only in this session and saved payloads are purged.
     bool clipboard_persist{false};
+    // The folded edge strip; hidden by dragging it onto the close target, restored
+    // from the tray or settings. The hint about restoring it is shown only once.
+    bool clipboard_strip_visible{true};
+    bool clipboard_strip_hint_shown{false};
     bool hotkeys_disabled{false};
     bool disable_hotkeys_in_game{false};
     int paste_file_format{}; // 0: PNG, 1: JPEG, 2: BMP
@@ -24,6 +28,7 @@ struct Preferences {
     UINT gif_modifiers{MOD_CONTROL | MOD_ALT},gif_key{'G'};
     UINT video_modifiers{MOD_CONTROL | MOD_ALT},video_key{'R'};
     UINT clipboard_modifiers{MOD_WIN},clipboard_key{'V'};
+    UINT translate_modifiers{MOD_CONTROL|MOD_ALT},translate_key{'Y'};
     std::filesystem::path save_directory;
     // Updater: daily automatic check (after startup), last successful check in
     // Unix seconds, proxy prefixes from the last verified manifest ('|'-separated),

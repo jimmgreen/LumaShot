@@ -23,13 +23,13 @@ void DrawPinMenu(ID2D1RenderTarget* t,const PinMenuModel& m,int hover){
     TextRenderer text_renderer;
     auto text=[&](const wchar_t* s,D2D1_RECT_F r,UINT32 c){text_renderer.Draw(t,dw.Get(),s,format.Get(),r,D2D1::ColorF(c));};
     if(!m.status.empty())text(m.status.c_str(),D2D1::RectF(18,8,PinMenuModel::Width-18,40),muted);
-    const wchar_t* labels[]={L"标注",m.locked?L"解锁":L"锁定",L"复制所选文字",L"复制全部文字",L"复制表格",L"复制图片",L"保存图片…",m.recognized?L"重新识别":L"识别文字",L"关闭贴图"};
+    const wchar_t* labels[]={L"标注",m.locked?L"解锁":L"锁定",L"复制所选文字",L"复制全部文字",L"复制表格",L"复制图片",L"保存图片…",m.recognized?L"重新识别":L"识别文字",m.translated?L"翻译面板":L"翻译",L"关闭贴图"};
     for(int i=0;i<PinMenuModel::Count;++i){if(!m.Visible(i))continue;const float y=m.RowTop(i);const bool active=i==hover&&m.enabled[i];
-        if(i==2||i==5||i==8){color(border);t->DrawLine({18,y-4},{PinMenuModel::Width-18,y-4},b.Get());}
+        if(i==2||i==5||i==9){color(border);t->DrawLine({18,y-4},{PinMenuModel::Width-18,y-4},b.Get());}
         if(active){color(m.dark?0x183e66:0xe2efff);t->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(8,y,PinMenuModel::Width-8,y+42),7,7),b.Get());}
         const UINT32 c=!m.enabled[i]?muted:active?(m.dark?0x69b3ff:0x0784ff):ink;
-        text(labels[i],D2D1::RectF(42,y,(i<=2?PinMenuModel::Width-77:PinMenuModel::Width-18),y+42),c);
-        if(i<=2){format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);text(i==0?L"空格":i==1?L"L":L"Ctrl+C",D2D1::RectF(PinMenuModel::Width-77,y,PinMenuModel::Width-20,y+42),muted);format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);}
+        text(labels[i],D2D1::RectF(42,y,(i<=2||i==8?PinMenuModel::Width-77:PinMenuModel::Width-18),y+42),c);
+        if(i<=2||i==8){format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);text(i==0?L"空格":i==1?L"L":i==8?L"T":L"Ctrl+C",D2D1::RectF(PinMenuModel::Width-77,y,PinMenuModel::Width-20,y+42),muted);format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);}
         color(c);const float x=20,cy=y+14;
         D2D1_MATRIX_3X2_F previous;t->GetTransform(&previous);
         t->SetTransform(D2D1::Matrix3x2F::Scale(.8f,.8f,D2D1::Point2F(x,cy))*previous);
@@ -52,6 +52,7 @@ void DrawPinMenu(ID2D1RenderTarget* t,const PinMenuModel& m,int hover){
         if(icon==5){line(2,2,15,15);line(15,2,2,15);}
         if(icon==6){line(1,16,5,15);line(5,15,16,4);line(16,4,12,0);line(12,0,1,11);line(1,11,1,16);line(9,3,13,7);}
         if(icon==8){rect(0,0,17,17);line(0,6,17,6);line(0,12,17,12);line(6,0,6,17);line(12,0,12,17);}
+        if(icon==9){line(0,2,9,2);line(4.5f,-1,4.5f,2);line(1.5f,4,7.5f,11);line(7.5f,4,1.5f,11);line(9,17,13,6);line(13,6,17,17);line(10.4f,13,15.6f,13);}
         if(icon==7){rect(1,7,16,17);line(8,11,8,14);line(4,7,4,3);line(4,3,6,0);line(6,0,11,0);line(11,0,13,3);if(!m.locked)line(13,3,13,7);}
         t->SetTransform(previous);
     }
@@ -127,7 +128,6 @@ int TrackPinMenu(HWND owner,POINT anchor,const PinMenuModel& model){
     if(GetCapture()==w)ReleaseCapture();if(p.window)DestroyWindow(w);if(IsWindow(owner)&&GetForegroundWindow()==owner)SetFocus(owner);return p.command;
 }
 }
-
 
 
 

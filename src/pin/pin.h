@@ -9,8 +9,10 @@
 #include <atomic>
 #include <functional>
 #include <map>
+#include <memory>
+namespace lumashot::translate{class Service;}
 namespace lumashot {
-constexpr UINT kOcrReady=WM_APP+20,kPinSaveReady=WM_APP+21,kPinSessionError=WM_APP+89;
+constexpr UINT kOcrReady=WM_APP+20,kPinSaveReady=WM_APP+21,kTranslateReady=WM_APP+22,kPinSessionError=WM_APP+89;
 class PinManager {
 public:
     explicit PinManager(HWND host);
@@ -26,6 +28,13 @@ public:
     std::function<bool()> dark_theme;
     std::function<int()> clipboard_format;
     std::function<PinStyle()> sticker_style;
+    // Screenshot translation: translate the most recently created pin (toolbar
+    // button / translate hotkey), deliver finished jobs, and retry pins that were
+    // waiting for an engine after the translation settings were saved.
+    void TranslateLast();
+    void TranslationReady(uint64_t job);
+    void TranslationConfigChanged();
+    std::function<void()> open_translation_settings;
 private:
     friend struct PinTest;
     friend struct PinSessionLifecycleTest;
@@ -50,13 +59,23 @@ private:
     void Menu(Pin& pin,POINT point);
     void Save(Pin& pin);
     void Copy(Pin& pin);
+    void TranslatePin(Pin& pin);
+    void TranslateKey(Pin& pin);
+    void StartOrWait(Pin& pin);
+    void StartTranslation(Pin& pin);
+    void ResetTranslation(Pin& pin);
+    void ShowTranslation(Pin& pin,bool show);
+    void EnsurePanel(Pin& pin);
+    void UpdatePanel(Pin& pin);
+    void PlacePanel(Pin& pin);
+    Pin* FindPin(uint64_t id);
     struct SaveResult {uint64_t id{};std::wstring error;std::unique_ptr<ClipboardImage> clipboard_image;};
     HWND host_;ocr::Service service_;uint64_t next_id_{1};
     std::map<uint64_t,std::unique_ptr<Pin>> pins_;
     std::vector<std::future<SaveResult>> saves_;
     bool processing_saves_{};
+    std::unique_ptr<translate::Service> translator_;uint64_t last_created_{};bool settings_prompted_{};
 };
 }
-
 
 

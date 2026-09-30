@@ -117,7 +117,7 @@ struct PinTest {
             Pump(100);expect(!p.recognizing&&!p.ocr_enabled&&p.text.lines.empty()&&Workers()==0,"editing ordinary pin does not start OCR");
             SetTimer(nullptr,0,30,[](HWND,UINT,UINT_PTR timer,DWORD){
                 const HWND menu=FindWindowW(L"LumaShot.PinMenu",nullptr);if(!menu)return;KillTimer(nullptr,timer);
-                PostMessageW(menu,WM_KEYDOWN,VK_END,0);PostMessageW(menu,WM_KEYDOWN,VK_UP,0);PostMessageW(menu,WM_KEYDOWN,VK_RETURN,0);
+                PostMessageW(menu,WM_KEYDOWN,VK_END,0);PostMessageW(menu,WM_KEYDOWN,VK_UP,0);PostMessageW(menu,WM_KEYDOWN,VK_UP,0);PostMessageW(menu,WM_KEYDOWN,VK_RETURN,0);
             });
             manager.Menu(p,{150,150});
             expect(p.recognizing&&p.ocr_enabled,"right-click recognize starts OCR explicitly");
@@ -254,6 +254,5 @@ struct PinTest {
 };
 }
 int main(int argc,char** argv){SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);int result=1;try{const std::string mode=argc>1?argv[1]:"";result=mode=="--zoom-ui"?lumashot::PinTest::ZoomUi():mode=="--save-reentry"?lumashot::PinTest::SaveReentry():lumashot::PinTest::Run();}catch(const std::exception& e){std::cout<<"FAIL "<<e.what()<<std::endl;}CoUninitialize();return result;}
-
 
 

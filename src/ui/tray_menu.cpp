@@ -23,7 +23,7 @@ std::vector<Item> Items(HMENU menu){
         Item item;item.command=info.wID;item.separator=(info.fType&MFT_SEPARATOR)!=0;item.checked=(info.fState&MFS_CHECKED)!=0;item.enabled=(info.fState&(MFS_DISABLED|MFS_GRAYED))==0;
         wchar_t label[256]{};GetMenuStringW(menu,static_cast<UINT>(i),label,256,MF_BYPOSITION);item.label=label;
         const auto hint=item.label.find(L'（');if(hint!=std::wstring::npos&&item.label.back()==L'）'){item.hint=item.label.substr(hint+1,item.label.size()-hint-2);item.label.resize(hint);}
-        item.toggle=item.command==3||item.command==9||item.command==10;
+        item.toggle=item.command==3||item.command==9||item.command==10||item.command==11;
         items.push_back(std::move(item));
     }
     return items;
@@ -80,7 +80,8 @@ struct Popup {
             case 6:box(-8,-6,8,6);text(L"GIF",{x-7,y-6,x+7,y+6},7.5f,icon);break;
             case 7:box(-8,-5,3,5);line(3,-2,8,-5);line(8,-5,8,5);line(8,5,3,2);break;
             case 3:line(-5,-7,-4,7);line(-5,-7,6,2);line(-4,7,0,3);line(0,3,6,2);break;
-            case 8:box(-6,-6,6,7);box(-3,-8,3,-4,1);line(-3,0,3,0);line(-3,3,2,3);break;
+            case 8:case 12:box(-6,-6,6,7);box(-3,-8,3,-4,1);line(-3,0,3,0);line(-3,3,2,3);break;
+            case 11:box(-8,-6,6,6);box(6,-4,9,4,1.5f);line(-5,-2,2,-2);line(-5,1,0,1);break;
             case 9:box(-8,-5,8,5,3);line(-5,0,-1,0);line(-3,-2,-3,2);target->FillEllipse(D2D1::Ellipse({x+3,y-1},1,1),color(icon));target->FillEllipse(D2D1::Ellipse({x+5,y+1},1,1),color(icon));break;
             case 10:
                 box(-9,-6,9,6);

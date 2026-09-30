@@ -15,10 +15,10 @@ void Key(Settings& s,UINT key,bool down){s.Input(key,down);Expect(input_blocked,
 void Finish(Settings& s){SendMessageW(s.window,Finished,0,0);Expect(!s.hook&&!s.recording&&!s.draining&&!input_blocked,"hook removed after complete chord");}
 void Snapshot(Settings& s,const wchar_t* file,float scale){
     RECT previous{};GetWindowRect(s.window,&previous);const float old=s.scale;
-    std::array<RECT,26> rects{};constexpr int ids[]={128,119,120,103,101,115,126,129,127,130,131,116,117,118,121,122,123,124,125,110,111,112,113,IDOK,IDCANCEL,114};
-    for(int i=0;i<26;++i){GetWindowRect(GetDlgItem(s.window,ids[i]),&rects[i]);MapWindowPoints(nullptr,s.window,reinterpret_cast<POINT*>(&rects[i]),2);}
-    SetWindowPos(s.window,nullptr,0,0,int(500*scale),int(1110*scale),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);s.scale=scale;
-    for(int i=0;i<26;++i){const auto r=rects[i];SetWindowPos(GetDlgItem(s.window,ids[i]),nullptr,int(r.left/old*scale),int(r.top/old*scale),int((r.right-r.left)/old*scale),int((r.bottom-r.top)/old*scale),SWP_NOZORDER|SWP_NOACTIVATE);}
+    std::array<RECT,27> rects{};constexpr int ids[]={128,119,120,103,101,115,126,132,129,127,130,131,116,117,118,121,122,123,124,125,110,111,112,113,IDOK,IDCANCEL,114};
+    for(int i=0;i<27;++i){GetWindowRect(GetDlgItem(s.window,ids[i]),&rects[i]);MapWindowPoints(nullptr,s.window,reinterpret_cast<POINT*>(&rects[i]),2);}
+    SetWindowPos(s.window,nullptr,0,0,int(500*scale),int(PanelHeight*scale),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);s.scale=scale;
+    for(int i=0;i<27;++i){const auto r=rects[i];SetWindowPos(GetDlgItem(s.window,ids[i]),nullptr,int(r.left/old*scale),int(r.top/old*scale),int((r.right-r.left)/old*scale),int((r.bottom-r.top)/old*scale),SWP_NOZORDER|SWP_NOACTIVATE);}
     s.RenderSurface();auto frame=MakeFrame({0,0,s.surface_width,s.surface_height});
     const auto* pixels=s.surface->Pixels();Expect((pixels[0]>>24)==0,"production surface has fully transparent outer corner");
     const auto hasInk=[&](RECT bounds,UINT32 ink){
@@ -62,7 +62,7 @@ void CALLBACK Drive(HWND,UINT,UINT_PTR timer,DWORD){
     RECT outer{},client{};GetWindowRect(w,&outer);GetClientRect(w,&client);POINT origin{};ClientToScreen(w,&origin);
     Expect(!(GetWindowLongPtrW(w,GWL_STYLE)&(WS_CAPTION|WS_THICKFRAME|WS_BORDER)),"actual dialog has no system caption or border");
     Expect(origin.x==outer.left&&origin.y==outer.top&&client.right==outer.right-outer.left&&client.bottom==outer.bottom-outer.top,"actual client and window extents agree");
-    for(int id:{128,115,116,117,118,121,122,123,124,125,126,129,127,130,131,113,IDCANCEL,IDOK}){RECT r{};GetWindowRect(GetDlgItem(w,id),&r);Expect(r.left>=outer.left&&r.right<=outer.right&&r.top>=outer.top&&r.bottom<=outer.bottom,"file paste and footer controls fully inside real window bounds");}
+    for(int id:{128,115,116,117,118,121,122,123,124,125,126,132,129,127,130,131,113,IDCANCEL,IDOK}){RECT r{};GetWindowRect(GetDlgItem(w,id),&r);Expect(r.left>=outer.left&&r.right<=outer.right&&r.top>=outer.top&&r.bottom<=outer.bottom,"file paste and footer controls fully inside real window bounds");}
     if(scenario==4){
         if(phase++==0){
             const DWORD foreground=GetWindowThreadProcessId(GetForegroundWindow(),nullptr),current=GetCurrentThreadId();
@@ -85,6 +85,11 @@ void CALLBACK Drive(HWND,UINT,UINT_PTR timer,DWORD){
         Expect(s.draft.start_with_windows,"login startup defaults on");SendMessageW(w,WM_COMMAND,127,0);Expect(!s.draft.start_with_windows,"startup switch disables draft");SendMessageW(w,WM_COMMAND,127,0);Expect(s.draft.start_with_windows,"startup switch enables draft");
         Expect(!s.draft.clipboard_enabled,"clipboard history defaults off");SendMessageW(w,WM_COMMAND,126,0);Expect(s.draft.clipboard_enabled,"clipboard switch enables draft");SendMessageW(w,WM_COMMAND,126,0);Expect(!s.draft.clipboard_enabled,"clipboard switch disables draft");
         Expect(!s.draft.clipboard_persist,"clipboard history persistence defaults off");SendMessageW(w,WM_COMMAND,129,0);Expect(s.draft.clipboard_persist,"persistence switch enables draft");SendMessageW(w,WM_COMMAND,113,0);Expect(!s.draft.clipboard_persist,"restore defaults turns persistence off");
+        Expect(!s.draft.clipboard_enabled&&!IsWindowEnabled(GetDlgItem(w,132)),"strip switch is disabled while the clipboard is off");
+        SendMessageW(w,WM_COMMAND,126,0);Expect(IsWindowEnabled(GetDlgItem(w,132)),"enabling the clipboard enables the strip switch");SendMessageW(w,WM_COMMAND,126,0);
+        Expect(s.draft.clipboard_strip_visible,"clipboard strip defaults visible");SendMessageW(w,WM_COMMAND,132,0);Expect(!s.draft.clipboard_strip_visible,"strip switch hides draft strip");
+        SendMessageW(w,WM_COMMAND,113,0);Expect(s.draft.clipboard_strip_visible,"restore defaults shows the strip again");
+        {RECT a{},b{};GetWindowRect(GetDlgItem(w,126),&a);GetWindowRect(GetDlgItem(w,132),&b);RECT c{};GetWindowRect(GetDlgItem(w,129),&c);Expect(a.bottom<=b.top&&b.bottom<=c.top,"strip switch sits between clipboard and history switches");}
         Expect(s.draft.pin_style==DefaultPinStyle,"sticker default is simple border and shadow");
         for(int id=121;id<=125;++id){SendMessageW(w,WM_COMMAND,id,0);Expect(static_cast<int>(s.draft.pin_style)==id-121,"each sticker choice updates draft");}
         SendMessageW(w,WM_COMMAND,124,0);
@@ -151,6 +156,11 @@ int main(){
     {Preferences unicode=stored;unicode.clipboard_persist=true;unicode.save_directory=L"C:\\Synthetic\\截图 Ünïcødé \U0001F308";unicode.SaveTo(path);const auto reread=Preferences::LoadFrom(path);
      Expect(reread.save_directory==unicode.save_directory,"non-ANSI save folder survives settings reload");Expect(reread.clipboard_persist,"clipboard persistence preference roundtrip");
      Preferences persist_decoded;Expect(Decode(Encode(unicode),persist_decoded)&&persist_decoded.clipboard_persist,"isolated settings IPC carries clipboard persistence");}
+    {Expect(loaded.clipboard_strip_visible&&!loaded.clipboard_strip_hint_shown,"strip visible and hint unseen by default on disk");
+     Preferences hidden=stored;hidden.clipboard_strip_visible=false;hidden.clipboard_strip_hint_shown=true;hidden.SaveTo(path);const auto reread=Preferences::LoadFrom(path);
+     Expect(!reread.clipboard_strip_visible&&reread.clipboard_strip_hint_shown,"hidden strip and seen hint survive settings reload");
+     Preferences strip_decoded;Expect(Decode(Encode(hidden),strip_decoded)&&!strip_decoded.clipboard_strip_visible,"isolated settings IPC carries strip visibility");
+     auto bad=Encode(hidden);bad.clipboard_strip_visible=2;Preferences rejected;Expect(!Decode(bad,rejected),"IPC rejects invalid strip visibility");}
     {const auto fresh=std::filesystem::current_path()/L"settings-fresh-unicode-test.ini";std::filesystem::remove(fresh);Preferences created;created.save_directory=L"D:\\合成\\ß";created.SaveTo(fresh);
      Expect(Preferences::LoadFrom(fresh).save_directory==created.save_directory,"new settings file is created as Unicode");std::filesystem::remove(fresh);}
     Expect(loaded.gif_key=='T'&&loaded.gif_modifiers==(MOD_CONTROL|MOD_SHIFT)&&loaded.video_key==0,"new bindings persist through isolated settings file");
@@ -165,7 +175,6 @@ int main(){
     wchar_t keep[8]{};GetPrivateProfileStringW(L"Unrelated",L"Keep",L"",keep,8,path.c_str());Expect(std::wstring(keep)==L"yes","atomic settings save preserves unknown fields");std::filesystem::remove(path);
     CoUninitialize();return failures?1:0;
 }
-
 
 
 

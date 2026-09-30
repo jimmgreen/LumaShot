@@ -60,6 +60,8 @@ Preferences Preferences::LoadFrom(const std::filesystem::path& path) {
     value.include_cursor=GetPrivateProfileIntW(L"General",L"IncludeCursor",1,path.c_str())!=0;
     value.clipboard_enabled=GetPrivateProfileIntW(L"General",L"ClipboardEnabled",0,path.c_str())!=0;
     value.clipboard_persist=GetPrivateProfileIntW(L"General",L"ClipboardPersist",0,path.c_str())!=0;
+    value.clipboard_strip_visible=GetPrivateProfileIntW(L"General",L"ClipboardStripVisible",1,path.c_str())!=0;
+    value.clipboard_strip_hint_shown=GetPrivateProfileIntW(L"General",L"ClipboardStripHintShown",0,path.c_str())!=0;
     value.hotkeys_disabled=GetPrivateProfileIntW(L"General",L"HotkeysDisabled",0,path.c_str())!=0;
     value.disable_hotkeys_in_game=GetPrivateProfileIntW(L"General",L"DisableHotkeysInGame",0,path.c_str())!=0;
     value.paste_as_file=GetPrivateProfileIntW(L"General",L"PasteAsFile",1,path.c_str())!=0;
@@ -80,6 +82,9 @@ Preferences Preferences::LoadFrom(const std::filesystem::path& path) {
     value.clipboard_key=GetPrivateProfileIntW(L"General",L"ClipboardHotkey",'V',path.c_str());
     value.clipboard_modifiers=GetPrivateProfileIntW(L"General",L"ClipboardModifiers",MOD_WIN,path.c_str());
     if(value.clipboard_key&&!ValidShortcut(value.clipboard_modifiers,value.clipboard_key)){value.clipboard_key='V';value.clipboard_modifiers=MOD_WIN;}
+    value.translate_key=GetPrivateProfileIntW(L"General",L"TranslateHotkey",'Y',path.c_str());
+    value.translate_modifiers=GetPrivateProfileIntW(L"General",L"TranslateModifiers",MOD_CONTROL|MOD_ALT,path.c_str());
+    if(value.translate_key&&!ValidShortcut(value.translate_modifiers,value.translate_key)){value.translate_key='Y';value.translate_modifiers=MOD_CONTROL|MOD_ALT;}
     wchar_t folder[32768]{};
     GetPrivateProfileStringW(L"General",L"Folder",L"",folder,32768,path.c_str());
     value.save_directory=folder;
@@ -117,6 +122,8 @@ void Preferences::SaveTo(const std::filesystem::path& destination) const {
     write(L"IncludeCursor",include_cursor?L"1":L"0");
     write(L"ClipboardEnabled",clipboard_enabled?L"1":L"0");
     write(L"ClipboardPersist",clipboard_persist?L"1":L"0");
+    write(L"ClipboardStripVisible",clipboard_strip_visible?L"1":L"0");
+    write(L"ClipboardStripHintShown",clipboard_strip_hint_shown?L"1":L"0");
     write(L"HotkeysDisabled",hotkeys_disabled?L"1":L"0");
     write(L"DisableHotkeysInGame",disable_hotkeys_in_game?L"1":L"0");
     write(L"PasteAsFile",paste_as_file?L"1":L"0");
@@ -125,7 +132,7 @@ void Preferences::SaveTo(const std::filesystem::path& destination) const {
     write(L"Theme",std::to_wstring(theme));write(L"Hotkey",std::to_wstring(key));
     write(L"GifHotkey",std::to_wstring(gif_key));write(L"GifModifiers",std::to_wstring(gif_modifiers));
     write(L"VideoHotkey",std::to_wstring(video_key));write(L"VideoModifiers",std::to_wstring(video_modifiers));
-    write(L"ClipboardHotkey",std::to_wstring(clipboard_key));write(L"ClipboardModifiers",std::to_wstring(clipboard_modifiers));
+    write(L"ClipboardHotkey",std::to_wstring(clipboard_key));write(L"ClipboardModifiers",std::to_wstring(clipboard_modifiers));write(L"TranslateHotkey",std::to_wstring(translate_key));write(L"TranslateModifiers",std::to_wstring(translate_modifiers));
     SaveToolProperties(temporary,tools);
     // Remove obsolete tool selection while preserving all style preferences.
     if(!WritePrivateProfileStringW(L"General",L"LastTool",nullptr,temporary.c_str()))

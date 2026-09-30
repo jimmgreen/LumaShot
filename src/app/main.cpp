@@ -1,6 +1,7 @@
 #include "app/application.h"
 #include "app/launch_options.h"
 #include "app/settings_process.h"
+#include "app/translation_settings.h"
 #include "export/png.h"
 #include "ui/themed_message.h"
 #include <shellapi.h>
@@ -29,6 +30,7 @@ int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int) {
             exit_code=application.RunForClient(args[2],std::wstring(args[1])==L"--capture-result-demo");
         }
         else if(count>1&&std::wstring(args[1])==L"--settings-worker"){exit_code=lumashot::SettingsWorkerMain(count,args);}
+        else if(count>1&&std::wstring(args[1])==L"--translation-settings"){exit_code=lumashot::TranslationSettingsMain(count>2&&std::wstring(args[2])==L"--dark");}
         else if(count==3&&(std::wstring(args[1])==L"--render-demo"||std::wstring(args[1])==L"--render-demo-dark")) {
             lumashot::Renderer renderer;
             lumashot::SavePng(renderer.Demo(true,std::wstring(args[1])==L"--render-demo-dark"),args[2]);
@@ -55,5 +57,4 @@ int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int) {
     }
     if(instance)CloseHandle(instance);if(args)LocalFree(args);CoUninitialize();return exit_code;
 }
-
 

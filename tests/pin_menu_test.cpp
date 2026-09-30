@@ -21,9 +21,11 @@ int main(){
     auto expect=[&](bool value,const char* message){std::cout<<(value?"PASS ":"FAIL ")<<message<<'\n';failures+=!value;};
     PinMenuModel m;m.table=true;for(float scale:{1.f,1.5f,2.f})for(POINT point:{POINT{-1920,0},POINT{-1,1079}}){auto r=PlacePinMenu(point,{-1920,0,0,1080},scale,m);expect(r.left>=-1920&&r.top>=0&&r.right<=0&&r.bottom<=1080,"menu stays on negative-coordinate monitor at mixed DPI");}
     for(int i=0;i<PinMenuModel::Count;++i)expect(m.Hit(40,m.RowTop(i)+21)==i,"paint and hit rows agree");
-    m.enabled[0]=m.enabled[1]=false;expect(m.Next(8,1)==2&&m.Next(2,-1)==8&&m.Hit(40,29)==-1,"disabled rows skipped by mouse and keyboard");m.enabled.fill(true);
+    m.enabled[0]=m.enabled[1]=false;expect(m.Next(9,1)==2&&m.Next(2,-1)==9&&m.Hit(40,29)==-1,"disabled rows skipped by mouse and keyboard");m.enabled.fill(true);
     HWND owner=CreateWindowExW(WS_EX_TOOLWINDOW,L"STATIC",L"Synthetic menu test",WS_POPUP,100,100,400,400,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);ShowWindow(owner,SW_SHOWNOACTIVATE);
     for(requested=0;requested<=14;++requested){SetTimer(nullptr,0,30,Drive);int command=TrackPinMenu(owner,{150,150},m);expect(command==(requested>=1&&requested<=9?PinMenuModel::Commands[requested-1]:requested==10?3:requested==12?7:requested==13?8:0),"popup dispatch, Escape and outside-click dismissal");}
+    expect(PinMenuModel::Commands[8]==10&&m.Visible(8)&&m.Hit(40,m.RowTop(8)+21)==8,"translate row sits after recognize");
+    {PinMenuModel off=m;off.ocr_available=false;expect(!off.Visible(7)&&!off.Visible(8)&&off.Height()==m.Height()-84&&off.Hit(40,off.RowTop(9)+21)==9,"recognize and translate rows hidden without OCR");}
     m.table=false;
     expect(m.Next(3,1)==5&&m.Next(5,-1)==3&&m.Hit(40,m.RowTop(5)+21)==5,"table row absent without a reliable result");
     m.table=true;expect(m.Next(3,1)==4&&PinMenuModel::Commands[4]==9,"table command reachable with a reliable result");

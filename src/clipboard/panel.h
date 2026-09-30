@@ -15,6 +15,10 @@ public:
     bool SetPersistent(bool persistent);
     void Show();
     void SetHotkeysSuspended(bool suspended);
+    // The folded edge strip can be hidden while history and the shortcut keep working.
+    void SetStripVisible(bool visible);
+    // Called after the user drags the strip onto the close target (strip now hidden).
+    void SetStripDismissedHandler(std::function<void()> handler);
 private:
     friend struct ClipboardPanelTest;
     struct Impl;std::unique_ptr<Impl> impl_;

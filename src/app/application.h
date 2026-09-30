@@ -87,6 +87,9 @@ private:
     bool ocr_available_{true};
     std::vector<uint32_t> recent_colors_;
     void TrayMenu();
+    void SetClipboardStripVisible(bool visible);
+    void ClipboardStripDismissed();
+    void EnableClipboardFromTray();
     void ConfigureHotkeyPolicy();
     void RefreshHotkeys();
     void ToggleHotkeyPolicy(UINT choice);
@@ -182,6 +185,8 @@ private:
     std::unique_ptr<Result> result_;
     uint64_t generation_{},pin_edit_id_{};
     std::shared_ptr<const Frame> pin_edit_source_;RECT pin_edit_bounds_{};bool pin_edit_copy_{};
+    // Screenshot translation: request (hotkey) → capture session flag → pin to translate.
+    bool translate_request_{},translate_capture_{},translate_next_{};
     // Reserved pin_edit_id_ for a long-image annotation session (pin ids count up from 1).
     static constexpr uint64_t kImageEditId=~uint64_t{};
     longshot::Host::AnnotateDone image_edit_done_;int image_edit_follow_{};
@@ -198,7 +203,6 @@ private:
     UINT taskbar_created_{};
 };
 }
-
 
 
 

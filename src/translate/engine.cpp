@@ -1,6 +1,7 @@
 #include "translate/engine.h"
 #include "translate/crypto.h"
 #include "translate/json.h"
+#include "translate/offline.h"
 #include <windows.h>
 #include <algorithm>
 #include <array>
@@ -30,7 +31,8 @@ constexpr std::array<LanguageInfo, LanguageCount> Languages{{
 }};
 const LanguageInfo& Info(Language language) { return Languages[std::min<size_t>(static_cast<size_t>(language), Languages.size() - 1)]; }
 
-constexpr std::array<Preset, 13> PresetTable{{
+constexpr std::array<Preset, 14> PresetTable{{
+    {"offline", L"离线翻译", Engine::OpenAi, "", "hy-mt1.5-1.8b", true, L"", L"", L"在本机运行开源翻译模型：不联网、不要密钥，文字不离开电脑"},
     {"ollama", L"本地 Ollama", Engine::OpenAi, "http://127.0.0.1:11434/v1", "", true, L"", L"", L"安装 Ollama 并拉取模型，例如 ollama pull qwen3:8b"},
     {"lmstudio", L"本地 LM Studio", Engine::OpenAi, "http://127.0.0.1:1234/v1", "", true, L"", L"", L"在 LM Studio 中加载模型并启动本地服务器"},
     {"deepseek", L"DeepSeek", Engine::OpenAi, "https://api.deepseek.com", "deepseek-v4-flash", false, L"", L"API Key", L"platform.deepseek.com → API Keys"},
@@ -103,13 +105,18 @@ std::string ModelsUrl(std::string_view endpoint) {
     return base + "/models";
 }
 
-enum class Protocol { JsonArray, QwenMt, Hunyuan };
+enum class Protocol { JsonArray, QwenMt, Hunyuan, Gemma };
 Protocol ProtocolFor(const Credentials& c) {
     const auto model = Lower(c.model);
     if (model.find("qwen-mt") != std::string::npos) return Protocol::QwenMt;
-    if (model.find("hunyuan-mt") != std::string::npos) return Protocol::Hunyuan;
+    if (model.find("hunyuan-mt") != std::string::npos || model.find("hy-mt") != std::string::npos) return Protocol::Hunyuan;
+    if (model.find("translategemma") != std::string::npos) return Protocol::Gemma;
     return Protocol::JsonArray;
 }
+bool Offline(const Credentials& c) { return c.preset && c.preset->id == "offline"; }
+bool Chinese(Language l) { return l == Language::ChineseSimplified || l == Language::ChineseTraditional; }
+// TranslateGemma language names/codes follow its model card (zh-Hans / zh-Hant are both "Chinese").
+std::string GemmaName(Language l) { return Chinese(l) ? std::string("Chinese") : std::string(Info(l).english); }
 
 std::string Joined(const Job& job) {
     std::string out;
@@ -331,6 +338,12 @@ std::optional<Credentials> Resolve(const Config& config, std::wstring* reason) {
             c.key = Trim(*key);
         }
     }
+    if (preset->id == "offline") {
+        const auto* model = offline::FindModel(c.model);
+        if (!model) return fail(L"未知的离线模型，请在引擎设置中重新选择");
+        if (!offline::RuntimeInstalled() || !offline::ModelInstalled(*model)) return fail(L"离线模型「" + std::wstring(model->name) + L"」还没有下载");
+        return c;
+    }
     if (preset->engine == Engine::OpenAi) {
         if (c.endpoint.empty()) return fail(L"请填写接口地址");
         if (c.model.empty()) return fail(L"请选择或填写模型");
@@ -351,7 +364,7 @@ size_t ChunkLimit(const Credentials& c) {
     case Engine::Baidu: return 1800;
     case Engine::Youdao: return 1800;
     case Engine::Tencent: return 1800;
-    case Engine::OpenAi: return c.preset && c.preset->local ? 1500 : 3000;
+    case Engine::OpenAi: return Offline(c) ? 1200 : c.preset && c.preset->local ? 1500 : 3000;
     }
     return 1500;
 }
@@ -380,20 +393,43 @@ http::Request BuildRequest(const Credentials& c, const Job& job, const Stamp& st
     const auto& target = Info(job.target);
     switch (c.preset->engine) {
     case Engine::OpenAi: {
+        const auto protocol = ProtocolFor(c);
+        if (protocol == Protocol::Gemma) {
+            // TranslateGemma's chat template needs structured content, so the
+            // prompt is rendered here and sent to llama-server's raw /completion.
+            auto base = Base(c.endpoint);
+            if (Lower(base).ends_with("/v1")) base.resize(base.size() - 3);
+            r.url = base + "/completion";
+            r.headers.emplace_back("Content-Type", "application/json");
+            std::wstring joined;
+            for (const auto& text : job.texts) { if (!joined.empty()) joined.push_back(L'\n'); joined += Flatten(text); }
+            Language source = job.source != Language::Auto ? job.source : Detect(joined);
+            if (source == Language::Auto) source = Language::English;
+            const auto& from = Info(source);
+            const std::string s_name = GemmaName(source), t_name = GemmaName(job.target);
+            const std::string prompt = "<start_of_turn>user\nYou are a professional " + s_name + " (" + std::string(from.key) + ") to " + t_name + " (" + std::string(target.key)
+                + ") translator. Your goal is to accurately convey the meaning and nuances of the original " + s_name + " text while adhering to " + t_name
+                + " grammar, vocabulary, and cultural sensitivities.\nProduce only the " + t_name + " translation, without any additional explanations or commentary. Please translate the following "
+                + s_name + " text into " + t_name + ":\n\n\n" + json::Utf8(joined) + "<end_of_turn>\n<start_of_turn>model\n";
+            r.body = "{\"prompt\":" + json::Quote(prompt) + ",\"n_predict\":2048,\"temperature\":0,\"stream\":false,\"cache_prompt\":true}";
+            break;
+        }
         r.url = ChatUrl(c.endpoint);
         r.headers.emplace_back("Content-Type", "application/json");
         if (!c.key.empty()) r.headers.emplace_back("Authorization", "Bearer " + c.key);
-        const auto protocol = ProtocolFor(c);
         std::string body = "{\"model\":" + json::Quote(c.model) + ",\"stream\":false,\"messages\":[";
         if (protocol == Protocol::QwenMt) {
             body += "{\"role\":\"user\",\"content\":" + json::Quote(Joined(job)) + "}]";
             body += ",\"translation_options\":{\"source_lang\":\"auto\",\"target_lang\":" + json::Quote(target.qwen) + "}";
         } else if (protocol == Protocol::Hunyuan) {
-            const bool chinese = job.target == Language::ChineseSimplified || job.target == Language::ChineseTraditional || job.source == Language::ChineseSimplified;
+            // Official Hunyuan-MT templates: Chinese instruction when either side is Chinese.
+            const bool chinese = Chinese(job.target) || Chinese(job.source);
             const std::string prompt = chinese
-                ? "把下面的文本翻译成" + json::Utf8(target.chinese) + "，逐行对应输出，不要额外解释。\n\n"
-                : "Translate the following text into " + std::string(target.english) + " line by line, without additional explanation.\n\n";
+                ? "将以下文本翻译为" + json::Utf8(target.chinese) + "，注意只需要输出翻译后的结果，不要额外解释：\n\n"
+                : "Translate the following segment into " + std::string(target.english) + ", without additional explanation.\n\n";
             body += "{\"role\":\"user\",\"content\":" + json::Quote(prompt + Joined(job)) + "}]";
+            // Sampling recommended by the model card (llama-server field names).
+            if (Offline(c)) body += ",\"temperature\":0.7,\"top_k\":20,\"top_p\":0.6,\"repeat_penalty\":1.05";
         } else {
             const std::string system =
                 "You are a professional translation engine. Translate every string in the user's JSON array into "
@@ -479,6 +515,14 @@ Outcome ParseResponse(const Credentials& c, const Job& job, const http::Response
     switch (c.preset->engine) {
     case Engine::OpenAi: {
         if (const auto* e = root->Find("error"); e && e->kind != json::Value::Kind::Null) { out.error = Detail(L"模型服务报错", ErrorMessage(*root)); return out; }
+        if (ProtocolFor(c) == Protocol::Gemma) {
+            const auto* content = root->Find("content");
+            if (!content || !content->IsString()) { out.error = L"模型没有返回译文"; return out; }
+            auto text = content->string;
+            if (const auto end = text.find("<end_of_turn>"); end != std::string::npos) text.resize(end);
+            ParseLlmContent(std::move(text), job, Protocol::Gemma, out);
+            return out;
+        }
         const auto* choices = root->Find("choices");
         const auto* first = choices ? choices->At(0) : nullptr;
         const auto* message = first ? first->Find("message") : nullptr;
@@ -559,13 +603,11 @@ Outcome RunOne(const Credentials& c, const Job& job, std::stop_token stop, const
     const Stamp stamp{std::time(nullptr), c.preset->engine == Engine::Youdao ? crypto::Uuid() : std::to_string(GetTickCount64() % 1000000000ull + 10000)};
     return ParseResponse(c, job, http::Send(BuildRequest(c, job, stamp), stop, limits));
 }
-}
 
-Outcome Run(const Credentials& c, const Job& job, std::stop_token stop, const http::Limits& limits) {
+Outcome RunChunks(const Credentials& c, const Job& job, std::stop_token stop, const http::Limits& limits) {
     Outcome total;
-    if (!c.preset) { total.error = L"尚未选择翻译引擎"; return total; }
     const size_t limit = ChunkLimit(c);
-    const size_t max_items = c.preset->engine == Engine::DeepL ? 50 : (c.preset->engine == Engine::OpenAi ? 40 : 100);
+    const size_t max_items = c.preset->engine == Engine::DeepL ? 50 : Offline(c) ? 16 : (c.preset->engine == Engine::OpenAi ? 40 : 100);
     size_t index = 0;
     bool first_request = true;
     while (index < job.texts.size()) {
@@ -594,6 +636,26 @@ Outcome Run(const Credentials& c, const Job& job, std::stop_token stop, const ht
         total.texts.insert(total.texts.end(), part.texts.begin(), part.texts.end());
     }
     total.ok = true;
+    return total;
+}
+}
+
+Outcome Run(const Credentials& c, const Job& job, std::stop_token stop, const http::Limits& limits) {
+    Outcome total;
+    if (!c.preset) { total.error = L"尚未选择翻译引擎"; return total; }
+    if (!Offline(c)) return RunChunks(c, job, stop, limits);
+    const auto* model = offline::FindModel(c.model);
+    if (!model) { total.error = L"未知的离线模型"; return total; }
+    std::wstring reason;
+    const auto base = offline::Acquire(*model, stop, &reason);
+    if (!base) { total.error = reason; return total; }
+    Credentials local = c;
+    local.endpoint = *base + "/v1";
+    // First tokens on a cold CPU can take a while; never cut a local job short.
+    http::Limits relaxed = limits;
+    relaxed.receive = std::max(relaxed.receive, std::chrono::milliseconds(std::chrono::minutes(3)));
+    total = RunChunks(local, job, stop, relaxed);
+    offline::Release();
     return total;
 }
 

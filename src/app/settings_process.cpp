@@ -1,6 +1,7 @@
 #include "app/settings_process.h"
 #include "app/settings_dialog.h"
 #include "app/hotkeys.h"
+#include <algorithm>
 #include <array>
 #include <vector>
 #include <string>
@@ -12,7 +13,7 @@ struct Handle {
     HANDLE value{};
     ~Handle(){if(value&&value!=INVALID_HANDLE_VALUE)CloseHandle(value);}
 };
-struct Values {UINT modifiers,key,cursor,theme,paste_as_file,paste_file_format,gif_modifiers,gif_key,video_modifiers,video_key,pin_style,clipboard_enabled,start_with_windows,clipboard_modifiers,clipboard_key,clipboard_persist,update_auto_check,clipboard_strip_visible,translate_modifiers,translate_key;};
+struct Values {UINT modifiers,key,cursor,theme,paste_as_file,paste_file_format,gif_modifiers,gif_key,video_modifiers,video_key,pin_style,clipboard_enabled,start_with_windows,clipboard_modifiers,clipboard_key,clipboard_persist,update_auto_check,clipboard_strip_visible,translate_modifiers,translate_key,translate_auto_show,settings_page;};
 // command: 0 = save request, 1 = "check for updates now" (host answers immediately).
 struct Exchange {UINT version;Values values;UINT accepted;LONG recording;UINT command;};
 thread_local Exchange* active_exchange{};
@@ -22,9 +23,9 @@ struct ActiveExchange {
     ~ActiveExchange(){active_exchange=previous;}
 };
 struct Mapping {Exchange* value{};~Mapping(){if(value)UnmapViewOfFile(value);}};
-Values Encode(const Preferences& p){return {p.modifiers,p.key,p.include_cursor?1u:0u,static_cast<UINT>(p.theme),p.paste_as_file?1u:0u,static_cast<UINT>(p.paste_file_format),p.gif_modifiers,p.gif_key,p.video_modifiers,p.video_key,static_cast<UINT>(p.pin_style),p.clipboard_enabled?1u:0u,p.start_with_windows?1u:0u,p.clipboard_modifiers,p.clipboard_key,p.clipboard_persist?1u:0u,p.update_auto_check?1u:0u,p.clipboard_strip_visible?1u:0u,p.translate_modifiers,p.translate_key};}
+Values Encode(const Preferences& p){return {p.modifiers,p.key,p.include_cursor?1u:0u,static_cast<UINT>(p.theme),p.paste_as_file?1u:0u,static_cast<UINT>(p.paste_file_format),p.gif_modifiers,p.gif_key,p.video_modifiers,p.video_key,static_cast<UINT>(p.pin_style),p.clipboard_enabled?1u:0u,p.start_with_windows?1u:0u,p.clipboard_modifiers,p.clipboard_key,p.clipboard_persist?1u:0u,p.update_auto_check?1u:0u,p.clipboard_strip_visible?1u:0u,p.translate_modifiers,p.translate_key,p.translate_auto_show?1u:0u,static_cast<UINT>(std::clamp(p.settings_page,0,5))};}
 bool Decode(const Values& values,Preferences& p){
-    if(!ValidShortcut(values.modifiers,values.key)||ShortcutModifier(values.key)||values.start_with_windows>1||values.clipboard_enabled>1||values.clipboard_persist>1||values.update_auto_check>1||values.clipboard_strip_visible>1||values.cursor>1||values.theme>2||values.paste_as_file>1||values.paste_file_format>2||values.pin_style>static_cast<UINT>(PinStyle::Curl))return false;
+    if(!ValidShortcut(values.modifiers,values.key)||ShortcutModifier(values.key)||values.start_with_windows>1||values.clipboard_enabled>1||values.clipboard_persist>1||values.update_auto_check>1||values.clipboard_strip_visible>1||values.translate_auto_show>1||values.settings_page>5||values.cursor>1||values.theme>2||values.paste_as_file>1||values.paste_file_format>2||values.pin_style>static_cast<UINT>(PinStyle::Curl))return false;
     for(auto pair:{std::pair{values.gif_modifiers,values.gif_key},std::pair{values.video_modifiers,values.video_key},std::pair{values.clipboard_modifiers,values.clipboard_key},std::pair{values.translate_modifiers,values.translate_key}})if(pair.second&&(!ValidShortcut(pair.first,pair.second)||ShortcutModifier(pair.second)))return false;
     p.start_with_windows=values.start_with_windows!=0;
     p.clipboard_modifiers=values.clipboard_modifiers;p.clipboard_key=values.clipboard_key;
@@ -33,6 +34,7 @@ bool Decode(const Values& values,Preferences& p){
     p.clipboard_persist=values.clipboard_persist!=0;
     p.update_auto_check=values.update_auto_check!=0;
     p.clipboard_strip_visible=values.clipboard_strip_visible!=0;
+    p.translate_auto_show=values.translate_auto_show!=0;p.settings_page=static_cast<int>(values.settings_page);
     p.pin_style=static_cast<PinStyle>(values.pin_style);
     p.gif_modifiers=values.gif_modifiers;p.gif_key=values.gif_key;p.video_modifiers=values.video_modifiers;p.video_key=values.video_key;
     p.modifiers=values.modifiers;p.key=values.key;p.include_cursor=values.cursor!=0;p.theme=static_cast<int>(values.theme);p.paste_as_file=values.paste_as_file!=0;p.paste_file_format=static_cast<int>(values.paste_file_format);return true;
@@ -46,7 +48,7 @@ int SettingsWorkerMain(int count,wchar_t** args){
     if(!map.value||!request.value||!response.value)return 2;
     Mapping exchange{static_cast<Exchange*>(MapViewOfFile(map.value,FILE_MAP_ALL_ACCESS,0,0,sizeof(Exchange)))};
     Preferences draft;
-    if(!exchange.value||exchange.value->version!=12||!Decode(exchange.value->values,draft))return 2;
+    if(!exchange.value||exchange.value->version!=13||!Decode(exchange.value->values,draft))return 2;
     return ShowSettingsDialog(nullptr,draft,[&](const Preferences& candidate){
         exchange.value->values=Encode(candidate);exchange.value->accepted=0;exchange.value->command=0;
         if(!SetEvent(request.value)||WaitForSingleObject(response.value,INFINITE)!=WAIT_OBJECT_0)return false;
@@ -71,7 +73,7 @@ bool EditPreferencesIsolated(HWND owner,Preferences& value,const std::function<b
     if(!SetInformationJobObject(job.value,JobObjectExtendedLimitInformation,&limits,sizeof(limits)))return false;
     Mapping exchange{static_cast<Exchange*>(MapViewOfFile(map.value,FILE_MAP_ALL_ACCESS,0,0,sizeof(Exchange)))};
     if(!exchange.value)return false;
-    *exchange.value={12,Encode(value),0,0,0};
+    *exchange.value={13,Encode(value),0,0,0};
     ActiveExchange active(exchange.value);
     SIZE_T bytes{};InitializeProcThreadAttributeList(nullptr,1,0,&bytes);
     std::vector<unsigned char> storage(bytes);

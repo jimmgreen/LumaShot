@@ -162,8 +162,12 @@ struct TranslationPanel::Impl {
         const auto t = theme();
         const float h = Height();
         hits.clear();
+        // DIP coordinates via the target DPI, not a scale transform: TextRenderer
+        // hands the target DPI to LumaText, which then rasterizes glyphs at the
+        // monitor's real pixel size (a 96-DPI target + transform would stretch them).
+        target->SetDpi(96 * scale, 96 * scale);
         target->BeginDraw();
-        target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale));
+        target->SetTransform(D2D1::Matrix3x2F::Identity());
         target->Clear(D2D1::ColorF(t.bg()));
         // Header
         Text(L"翻译", {16, 10, 200, 34}, 16, t.ink(), true);

@@ -11,12 +11,19 @@ EXSTYLE WS_EX_CONTROLPARENT
 // Window text is set at runtime: CAPTION implicitly adds WS_CAPTION.
 FONT 10, "Microsoft YaHei UI"
 BEGIN
+    CONTROL "快捷键", 135, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "截图", 136, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "剪贴板", 137, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "截图翻译", 138, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "外观", 139, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "通用", 140, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "截图快捷键", 103, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "GIF 快捷键", 119, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "录屏快捷键", 120, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "剪贴板快捷键", 128, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "翻译快捷键", 133, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "引擎设置…", 134, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "完成后显示译文贴图", 141, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "包含鼠标指针", 101, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "截图粘贴为文件", 115, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "开机自启动", 127, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1

@@ -17,7 +17,7 @@ void Snapshot(Settings& s,const wchar_t* file,float scale){
     RECT previous{};GetWindowRect(s.window,&previous);const float old=s.scale;
     std::array<RECT,27> rects{};constexpr int ids[]={128,119,120,103,101,115,126,132,129,127,130,131,116,117,118,121,122,123,124,125,110,111,112,113,IDOK,IDCANCEL,114};
     for(int i=0;i<27;++i){GetWindowRect(GetDlgItem(s.window,ids[i]),&rects[i]);MapWindowPoints(nullptr,s.window,reinterpret_cast<POINT*>(&rects[i]),2);}
-    SetWindowPos(s.window,nullptr,0,0,int(500*scale),int(PanelHeight*scale),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);s.scale=scale;
+    SetWindowPos(s.window,nullptr,0,0,int(PanelWidth*scale),int(PanelHeight*scale),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);s.scale=scale;
     for(int i=0;i<27;++i){const auto r=rects[i];SetWindowPos(GetDlgItem(s.window,ids[i]),nullptr,int(r.left/old*scale),int(r.top/old*scale),int((r.right-r.left)/old*scale),int((r.bottom-r.top)/old*scale),SWP_NOZORDER|SWP_NOACTIVATE);}
     s.RenderSurface();auto frame=MakeFrame({0,0,s.surface_width,s.surface_height});
     const auto* pixels=s.surface->Pixels();Expect((pixels[0]>>24)==0,"production surface has fully transparent outer corner");
@@ -40,6 +40,7 @@ void Snapshot(Settings& s,const wchar_t* file,float scale){
     const UINT32 ink=s.material_dark?0xedf4ff:0x243142;
     Expect(hasInk({LONG(60*scale),LONG(18*scale),LONG(220*scale),LONG(48*scale)},ink),"LumaText paints settings title at current DPI");
     for(int id:{103,IDCANCEL}){
+        if(id==103&&s.page!=0)continue;
         RECT bounds{};GetWindowRect(GetDlgItem(s.window,id),&bounds);MapWindowPoints(nullptr,s.window,reinterpret_cast<POINT*>(&bounds),2);
         Expect(hasInk(bounds,ink),"LumaText paints translated shortcut and footer control text");
     }
@@ -97,9 +98,14 @@ void CALLBACK Drive(HWND,UINT,UINT_PTR timer,DWORD){
         SendMessageW(w,WM_COMMAND,117,0);Expect(s.draft.paste_file_format==1,"JPEG selection updates draft");
         SendMessageW(w,WM_COMMAND,115,0);Expect(!s.draft.paste_as_file&&!IsWindowEnabled(GetDlgItem(w,116))&&!IsWindowEnabled(GetDlgItem(w,117))&&!IsWindowEnabled(GetDlgItem(w,118)),"disabling file paste disables all format controls");
         SendMessageW(w,WM_COMMAND,118,0);Expect(s.draft.paste_file_format==1,"disabled format cannot change draft");
+        SendMessageW(w,WM_COMMAND,136,0);{const auto shown=[&](int id){return (GetWindowLongPtrW(GetDlgItem(w,id),GWL_STYLE)&WS_VISIBLE)!=0;};Expect(s.page==1&&shown(115)&&shown(116)&&!shown(103)&&!shown(126)&&shown(135)&&shown(IDOK),"sidebar shows one page at a time");}
         Snapshot(s,L"settings-file-disabled.png",1);
         SendMessageW(w,WM_COMMAND,115,0);SendMessageW(w,WM_COMMAND,118,0);Expect(s.draft.paste_as_file&&s.draft.paste_file_format==2&&IsWindowEnabled(GetDlgItem(w,118)),"reenabling file paste permits BMP selection");
-        Snapshot(s,L"settings-light.png",1);SendMessageW(w,WM_COMMAND,112,0);Expect(s.draft.theme==2,"dark theme preview updates draft");Snapshot(s,L"settings-dark-150.png",1.5f);
+        {const auto pages=[&](const wchar_t* prefix){for(int page=0;page<6;++page){SendMessageW(w,WM_COMMAND,135+page,0);Snapshot(s,(std::wstring(prefix)+std::to_wstring(page)+L".png").c_str(),1);}};
+         SendMessageW(w,WM_COMMAND,111,0);pages(L"settings-light-p");SendMessageW(w,WM_COMMAND,112,0);Expect(s.draft.theme==2,"dark theme preview updates draft");pages(L"settings-dark-p");}
+        SendMessageW(w,WM_COMMAND,138,0);Expect(s.tr_name==L"DeepSeek"&&!s.tr_ready,"translation page summarises the isolated engine config");
+        Expect(s.draft.translate_auto_show,"translated pin switch defaults on");SendMessageW(w,WM_COMMAND,141,0);Expect(!s.draft.translate_auto_show,"translated pin switch toggles draft");SendMessageW(w,WM_COMMAND,141,0);
+        SendMessageW(w,WM_COMMAND,135,0);Snapshot(s,L"settings-dark-150.png",1.5f);
         SendMessageW(w,WM_COMMAND,103,0);Expect(s.recording&&s.hook,"recording installs hook on demand");
         Key(s,VK_LWIN,true);Key(s,VK_LCONTROL,true);Key(s,VK_F11,true);Expect(s.draft.modifiers==(MOD_WIN|MOD_CONTROL)&&s.draft.key==VK_F11,"Win plus Ctrl plus F11 captured");
         Key(s,VK_F11,false);Key(s,VK_LCONTROL,false);Key(s,VK_LWIN,false);Finish(s);
@@ -137,6 +143,10 @@ void CALLBACK Drive(HWND,UINT,UINT_PTR timer,DWORD){
 }
 int main(){
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+    // Synthetic engine config: the translation page never reads the user's file.
+    const auto translation_config=std::filesystem::current_path()/L"settings-translation-test.ini";
+    {translate::Config config;config.provider="deepseek";translate::SaveConfig(translation_config,config);}
+    SetEnvironmentVariableW(L"LUMASHOT_TRANSLATION_CONFIG",translation_config.c_str());
     Expect(Preferences{}.clipboard_key=='V'&&Preferences{}.clipboard_modifiers==MOD_WIN,"clipboard defaults to Win+V");
     Expect(!CaptureOnLaunch(L"--background")&&!ActivateExistingOnLaunch(L"--background")&&CaptureOnLaunch(L"--capture")&&CaptureOnLaunch(L""),"installer background launch neither captures nor activates existing instance");
     Expect(ShortcutLabel(MOD_WIN|MOD_SHIFT,'S').find(L"Win")!=std::wstring::npos,"shortcut label retains Win modifier");
@@ -173,6 +183,11 @@ int main(){
     WritePrivateProfileStringW(L"General",L"PinStyle",nullptr,path.c_str());Expect(Preferences::LoadFrom(path).pin_style==DefaultPinStyle,"old settings without PinStyle migrate to simple");
     auto invalid=Encode(stored);invalid.pin_style=5;Preferences decoded;Expect(!Decode(invalid,decoded),"IPC rejects invalid sticker style");
     wchar_t keep[8]{};GetPrivateProfileStringW(L"Unrelated",L"Keep",L"",keep,8,path.c_str());Expect(std::wstring(keep)==L"yes","atomic settings save preserves unknown fields");std::filesystem::remove(path);
+    {Preferences page;page.settings_page=3;page.translate_auto_show=false;page.SaveTo(path);const auto reread=Preferences::LoadFrom(path);
+     Expect(reread.settings_page==3&&!reread.translate_auto_show,"settings page and translated pin switch survive settings reload");
+     Preferences decoded_page;Expect(Decode(Encode(page),decoded_page)&&decoded_page.settings_page==3&&!decoded_page.translate_auto_show,"isolated settings IPC carries settings page and translated pin switch");
+     auto bad=Encode(page);bad.settings_page=6;Preferences rejected;Expect(!Decode(bad,rejected),"IPC rejects invalid settings page");std::filesystem::remove(path);}
+    std::filesystem::remove(translation_config);
     CoUninitialize();return failures?1:0;
 }
 

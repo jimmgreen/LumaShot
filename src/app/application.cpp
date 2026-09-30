@@ -137,6 +137,7 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
     clipboard_panel_->SetStripDismissedHandler([this]{PostMessageW(main_,kStripDismissed,0,0);});
     pins_=std::make_unique<PinManager>(main_);
     pins_->sticker_style=[this]{return preferences_.pin_style;};
+    pins_->translate_auto_show=[this]{return preferences_.translate_auto_show;};
     pins_->dark_theme=[this]{return preferences_.Dark();};
     pins_->clipboard_format=[this]{return preferences_.paste_as_file?preferences_.paste_file_format:-1;};
     pins_->open_translation_settings=[this]{if(!LaunchTranslationSettings(preferences_.Dark()))Notice(L"无法打开翻译设置。");};

@@ -36,10 +36,12 @@
 
 ## 引擎
 
-打开“翻译引擎设置”（独立的短生命周期进程 `LumaShot.exe --translation-settings`，关闭即退出）：
+打开“翻译引擎设置”（独立的短生命周期进程 `LumaShot.exe --translation-settings`，关闭即退出）。引擎用分组下拉框选择（离线 / 本地、大模型 API、翻译 API，标出“本地”“免费”“免费额度”），表单只显示当前引擎需要填写的项；预设引擎的接口地址已预填并收在“高级”里，与默认值相同时不写入配置，以后预设更新（例如模型下线）会自动跟随。密钥框右侧的眼睛图标可临时显示明文。主设置的“截图翻译”页显示当前引擎摘要，并提供“完成后显示译文贴图”开关（默认开启；关闭后翻译完成只打开面板，贴图保持原图）。
+
 
 | 引擎 | 需要 | 说明 |
 | --- | --- | --- |
+| 离线翻译（内置） | 在设置里下载模型 | 见下文“离线翻译”，首次打开设置时的默认引擎 |
 | 本地 Ollama / LM Studio | 无需密钥 | 打开设置时自动探测 `127.0.0.1:11434` / `:1234`，检测到即显示绿点并预填第一个模型 |
 | DeepSeek、通义千问（qwen-mt-turbo）、硅基流动（Hunyuan-MT-7B 免费）、智谱 GLM、Kimi、OpenAI | API Key | OpenAI 兼容接口，“获取”按钮列出 `/models` |
 | 自定义（OpenAI 兼容） | 接口地址，Key 可选 | vLLM、One API 等 |
@@ -48,18 +50,39 @@
 | 有道智云 | 应用ID + 应用密钥 | 批量文本翻译 v3 签名 |
 | 腾讯云机器翻译 | SecretId + SecretKey (+ 地域) | TC3-HMAC-SHA256 |
 
-“测试翻译”会用当前表单（未保存也可）翻译一句英文并显示耗时。“默认译为”选“自动”时：中文译成英文，其他语言译成简体中文。
+“测试翻译”会用当前表单（未保存也可）翻译一句英文，结果卡片显示耗时和译文，失败时显示原因。“默认译为”选“自动”时：中文译成英文，其他语言译成简体中文。
+
+## 离线翻译
+
+不装任何软件、不要密钥，文字不离开电脑。选择“离线翻译”后，设置窗口显示本机配置（内存、独显与显存）和三张模型卡片，并按配置标出“推荐”以及“显卡加速 / CPU 运行 / 可能较慢 / 配置不足”：
+
+| 模型 | 文件 | 内存 | 整模显卡加速 | 语言 | 许可 |
+| --- | --- | --- | --- | --- | --- |
+| 混元翻译 1.5 · 1.8B（默认） | HY-MT1.5-1.8B Q4_K_M，1.1 GB | 4 GB 起 | 1.5 GB 显存 | 33 种 + 5 种方言 | 腾讯混元社区许可协议 |
+| 混元翻译 1.5 · 7B | HY-MT1.5-7B Q4_K_M，4.3 GB | 16 GB | 5.5 GB 显存 | 33 种 | 腾讯混元社区许可协议 |
+| TranslateGemma · 4B | translategemma-4b-it Q4_K_M，2.3 GB | 8 GB | 3.5 GB 显存 | 55 种 | Gemma 使用条款 |
+
+- **推荐规则**：显存足够整模加速 7B 时推荐 7B，否则推荐 1.8B。首次选择时自动选中推荐项。
+- **下载**：点“下载”后，首次会先下载推理组件 llama.cpp `b11272` 的 Windows Vulkan 版（32 MB 压缩包，解压后约 85 MB，含 CPU 后端，从 GitHub 或 GitHub 加速镜像下载），再下载模型。混元模型依次尝试 ModelScope、hf-mirror、Hugging Face；TranslateGemma 依次尝试 hf-mirror、Hugging Face。镜像速度持续低于 96 KB/s 时自动换下一个。
+- **断点续传与校验**：写入 `*.partial`，续传时先重新计算已下载部分的 SHA-256；服务器不支持 Range 时自动从头开始。完成后大小和 SHA-256 必须与内置值一致才会改名就位，并写入 `.verified` 标记；校验失败的文件会丢弃并换下一个来源。
+- **交互**：卡片显示阶段、百分比、速度和剩余时间，同一时间只下载一个模型；“暂停”或关闭窗口都会保留进度，卡片显示“已暂停 · 已下载 X / Y”，点“继续”接着下。已安装的模型可“删除”（3 秒内再点一次确认）。开始前检查磁盘剩余空间。选中的模型未下载时不能保存。
+- **位置**：`%LOCALAPPDATA%\LumaShot\offline\`（`runtime\b11272\`、`models\`、`server.log`）；“要求与许可”弹窗中可打开该文件夹。
+- **运行**：翻译时才在后台启动 `llama-server`（只监听 `127.0.0.1` 的随机端口，无窗口，放在“关闭即结束”的作业对象中），首次加载 5–20 秒；空闲 5 分钟自动退出释放内存，LumaShot 退出时一并结束。Vulkan 后端启动失败会自动改用 CPU（`-dev none`）重试一次。
+- **提示词**：混元使用官方模板（中文相关用“将以下文本翻译为…，注意只需要输出翻译后的结果，不要额外解释”）和推荐采样参数（temperature 0.7、top_p 0.6、top_k 20、repeat_penalty 1.05）；TranslateGemma 的聊天模板要求结构化内容，因此直接用官方提示词调用 `/completion`。
+- **要求**：Windows 10 1803 或更高（使用系统自带 `tar.exe` 解压）；显卡可选，支持 Vulkan 的 NVIDIA / AMD / Intel 显卡自动加速，显存不足时部分加速或使用 CPU。
 
 ## 隐私与安全
 
 - 只发送 OCR 识别出的文字，从不上传截图。
 - 配置保存在 `%LOCALAPPDATA%\LumaShot\translation.ini`；密钥以当前用户 DPAPI 加密后 Base64 保存，磁盘上没有明文，输入框留空表示保留已保存的密钥。
 - 远程接口只允许 https；http 只允许发往本机或私有网段（并绕过系统代理），不跟随重定向，响应限 4 MB。
-- 翻译在后台线程执行，每个任务一个短生命周期线程；空闲时没有任何常驻线程或进程。
+- 翻译在后台线程执行，每个任务一个短生命周期线程；空闲时没有任何常驻线程或进程（离线引擎空闲 5 分钟后退出）。
+- 离线翻译的模型与推理组件均为固定版本并校验 SHA-256；下载即表示同意对应许可（混元社区许可不适用于欧盟、英国和韩国）。
 
 ## 验证
 
 - `build\lumashot_translate_test.exe`：JSON、MD5/SHA-256/HMAC、各引擎请求构造与签名参考向量、响应解析、分段、回环假服务的端到端流程。
+- `build\lumashot_offline_test.exe`：模型目录、硬件评估与推荐、服务器命令行、安装标记、回环 HTTP 服务上的完整下载 / 断点续传 / 忽略 Range / 损坏续传 / 镜像回退 / 校验失败 / 取消，以及混元与 TranslateGemma 提示词。
 - `build\lumashot_pin_translation_test.exe`：对比度、背景/文字取色、渲染范围与不透明、溢出向下扩展、复制文本拼接。
 - `build\lumashot_pin_menu_test.exe`：贴图菜单“翻译”行的位置、命中与无 OCR 时隐藏。
-- 视觉检查（按需构建，不在 ctest 中）：`cmake --build build --target lumashot_translation_preview`，运行 `build\lumashot_translation_preview.exe`，在 `build\` 生成译文覆盖前后对比、翻译面板（浅色/深色/未配置）和引擎设置窗口（浅色/深色）截图。窗口停放在屏幕外、不抢焦点；设置窗口通过 `LUMASHOT_TRANSLATION_CONFIG` 读取隔离的 `build\translation-preview.ini`，不接触真实配置。
+- 视觉检查（按需构建，不在 ctest 中）：`cmake --build build --target lumashot_translation_preview`，运行 `build\lumashot_translation_preview.exe`，在 `build\` 生成译文覆盖前后对比、翻译面板（浅色/深色/未配置）、引擎设置窗口（浅色/深色、引擎与语言下拉、离线未下载/已安装/要求与许可）截图。离线状态用 `LUMASHOT_OFFLINE_ROOT` 指向 `build\offline-preview\`，已安装状态用稀疏文件模拟，不下载模型。窗口停放在屏幕外、不抢焦点；设置窗口通过 `LUMASHOT_TRANSLATION_CONFIG` 读取隔离的 `build\translation-preview.ini`，不接触真实配置。

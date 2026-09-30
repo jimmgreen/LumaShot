@@ -6,6 +6,11 @@
 #include "pin/translation.h"
 #include "pin/translation_panel.h"
 #include "export/png.h"
+#include "translate/engine.h"
+#include "translate/offline.h"
+#include <winioctl.h>
+#include <filesystem>
+#include <fstream>
 #include "ui/memory_target.h"
 #include <windows.h>
 #include <objbase.h>
@@ -97,6 +102,72 @@ bool Capture(HWND window, const wchar_t* path) {
     if (ok) SavePng(f, path);
     return ok;
 }
+
+struct Click { float x, y; };  // DIP, client coordinates
+// Runs the settings window in its own process with an isolated config and
+// offline folder, optionally clicks (posted, no real input) and captures it.
+void Settings(bool dark, const translate::Config& config, const std::wstring& offline_root, const std::vector<Click>& clicks, const wchar_t* path) {
+    wchar_t module[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, module, MAX_PATH);
+    std::wstring folder(module);
+    folder.resize(folder.find_last_of(L'\\'));
+    const std::wstring ini = folder + L"\\translation-preview.ini";
+    translate::SaveConfig(ini, config);
+    SetEnvironmentVariableW(L"LUMASHOT_TRANSLATION_CONFIG", ini.c_str());
+    SetEnvironmentVariableW(L"LUMASHOT_TRANSLATION_PREVIEW", L"1");
+    SetEnvironmentVariableW(L"LUMASHOT_OFFLINE_ROOT", offline_root.c_str());
+    std::wstring exe = folder + L"\\LumaShot.exe";
+    std::wstring command = L"\"" + exe + L"\" --translation-settings" + (dark ? L" --dark" : L"");
+    STARTUPINFOW startup{sizeof(startup)};
+    PROCESS_INFORMATION info{};
+    if (!CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &info)) { std::cout << "settings launch failed\n"; return; }
+    HWND settings = nullptr;
+    for (int i = 0; i < 100 && !settings; ++i) { Sleep(50); settings = FindWindowW(L"LumaShot.TranslationSettings", nullptr); }
+    Sleep(1500); // local-model and hardware probes, first paint
+    if (settings) {
+        const float scale = GetDpiForWindow(settings) / 96.f;
+        for (const auto& click : clicks) {
+            const LPARAM at = MAKELPARAM(int(click.x * scale), int(click.y * scale));
+            PostMessageW(settings, WM_MOUSEMOVE, 0, at);
+            PostMessageW(settings, WM_LBUTTONDOWN, MK_LBUTTON, at);
+            PostMessageW(settings, WM_LBUTTONUP, 0, at);
+            Sleep(250);
+        }
+        if (!clicks.empty()) PostMessageW(settings, WM_MOUSEMOVE, 0, MAKELPARAM(2, 2));
+        Sleep(300);
+        std::cout << (Capture(settings, path) ? "settings ok " : "settings capture failed ") << std::filesystem::path(path).filename().string() << '\n';
+        PostMessageW(settings, WM_CLOSE, 0, 0);
+    }
+    WaitForSingleObject(info.hProcess, 5000);
+    CloseHandle(info.hThread);
+    CloseHandle(info.hProcess);
+}
+// Installed state without downloading: sparse file of the exact size + markers.
+void FakeInstall(const std::filesystem::path& root) {
+    namespace fs = std::filesystem;
+    SetEnvironmentVariableW(L"LUMASHOT_OFFLINE_ROOT", root.c_str());
+    const auto& model = *translate::offline::FindModel(translate::offline::DefaultModel);
+    const auto file = translate::offline::ModelPath(model);
+    fs::create_directories(file.parent_path());
+    const HANDLE h = CreateFileW(file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        DWORD returned = 0;
+        DeviceIoControl(h, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &returned, nullptr);
+        LARGE_INTEGER end{};
+        end.QuadPart = LONGLONG(model.size);
+        SetFilePointerEx(h, end, nullptr, FILE_BEGIN);
+        SetEndOfFile(h);
+        CloseHandle(h);
+    }
+    std::ofstream(file.native() + L".verified", std::ios::binary) << model.sha256;
+    fs::create_directories(translate::offline::RuntimeDirectory());
+    std::ofstream(translate::offline::ServerPath(), std::ios::binary) << "stub";
+    std::ofstream(translate::offline::RuntimeDirectory() / L"ggml-base.dll", std::ios::binary) << "stub";
+    std::ofstream(translate::offline::RuntimeDirectory() / L".verified", std::ios::binary) << translate::offline::RuntimePackage().build;
+    // A paused 7B download shows the resume state.
+    const auto& big = *translate::offline::FindModel("hy-mt1.5-7b");
+    std::ofstream(translate::offline::ModelPath(big).native() + L".partial", std::ios::binary) << std::string(1 << 20, 'x');
+}
 }
 
 int main() {
@@ -145,28 +216,26 @@ int main() {
                 Capture(panel.Window(), L"build\\translation-panel-setup.png");
             }
         }
-        // Settings window: its own process, isolated config file, parked off-screen.
-        for (bool dark : {false, true}) {
-            wchar_t module[MAX_PATH]{};
-            GetModuleFileNameW(nullptr, module, MAX_PATH);
-            std::wstring folder(module);
-            folder.resize(folder.find_last_of(L'\\'));
-            SetEnvironmentVariableW(L"LUMASHOT_TRANSLATION_CONFIG", (folder + L"\\translation-preview.ini").c_str());
-            SetEnvironmentVariableW(L"LUMASHOT_TRANSLATION_PREVIEW", L"1");
-            std::wstring exe = folder + L"\\LumaShot.exe";
-            std::wstring command = L"\"" + exe + L"\" --translation-settings" + (dark ? L" --dark" : L"");
-            STARTUPINFOW startup{sizeof(startup)};
-            PROCESS_INFORMATION info{};
-            if (!CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &info)) { std::cout << "settings launch failed\n"; continue; }
-            HWND settings = nullptr;
-            for (int i = 0; i < 100 && !settings; ++i) { Sleep(50); settings = FindWindowW(L"LumaShot.TranslationSettings", nullptr); }
-            Sleep(1500); // local-model probe (700 ms timeouts) and first paint
-            if (settings) std::cout << (Capture(settings, dark ? L"build\\translation-settings-dark.png" : L"build\\translation-settings-light.png") ? "settings ok\n" : "settings capture failed\n");
-            if (settings) PostMessageW(settings, WM_CLOSE, 0, 0);
-            WaitForSingleObject(info.hProcess, 5000);
-            CloseHandle(info.hThread);
-            CloseHandle(info.hProcess);
-        }
+        // Settings window: its own process, isolated config and offline folder, parked off-screen.
+        namespace fs = std::filesystem;
+        const fs::path root = fs::absolute(L"build\\offline-preview");
+        std::error_code error;
+        fs::remove_all(root, error);
+        translate::Config cloud;
+        cloud.provider = "deepseek";
+        cloud.Edit("deepseek").model = "deepseek-v4-flash";
+        for (bool dark : {false, true}) Settings(dark, cloud, (root / L"none").wstring(), {}, dark ? L"build\\translation-settings-dark.png" : L"build\\translation-settings-light.png");
+        Settings(false, cloud, (root / L"none").wstring(), {{300, 94}}, L"build\\translation-engine-popup.png");
+        Settings(false, cloud, (root / L"none").wstring(), {{300, 285}}, L"build\\translation-language-popup.png");
+        translate::Config local;
+        local.provider = "offline";
+        for (bool dark : {false, true}) Settings(dark, local, (root / L"empty").wstring(), {}, dark ? L"build\\translation-offline-dark.png" : L"build\\translation-offline-light.png");
+        FakeInstall(root / L"installed");
+        Settings(false, local, (root / L"installed").wstring(), {}, L"build\\translation-offline-installed.png");
+        Settings(true, local, (root / L"installed").wstring(), {}, L"build\\translation-offline-installed-dark.png");
+        Settings(false, local, (root / L"installed").wstring(), {{455, 127}}, L"build\\translation-offline-details.png");
+        Settings(false, local, (root / L"installed").wstring(), {{300, 94}}, L"build\\translation-offline-engines.png");
+        fs::remove_all(root, error);
     } catch (const std::exception& e) {
         std::cout << "error: " << e.what() << '\n';
         return 1;

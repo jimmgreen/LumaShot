@@ -82,18 +82,32 @@ Result Get(const std::string& url, std::stop_token stop, std::uint64_t max_bytes
     };
     const auto network = [&] { result.error = GetLastError(); return finish(Status::Network); };
 
-    const wchar_t* headers = L"Cache-Control: no-cache\r\nPragma: no-cache\r\n";
-    if (canceled() || !WinHttpSendRequest(request.value, headers, static_cast<DWORD>(-1L), WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) return network();
+    std::wstring headers = L"Cache-Control: no-cache\r\nPragma: no-cache\r\n";
+    if (options.range_start) headers += L"Range: bytes=" + std::to_wstring(options.range_start) + L"-\r\n";
+    if (canceled() || !WinHttpSendRequest(request.value, headers.c_str(), static_cast<DWORD>(-1L), WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) return network();
     if (canceled() || !WinHttpReceiveResponse(request.value, nullptr)) return network();
     DWORD status_code = 0, length = sizeof(status_code);
     if (canceled() || !WinHttpQueryHeaders(request.value, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &length, WINHTTP_NO_HEADER_INDEX)) return network();
-    if (status_code != 200) { result.http_status = status_code; return finish(Status::HttpStatus); }
+    const bool partial = status_code == 206 && options.range_start;
+    if (status_code != 200 && !partial) { result.http_status = status_code; return finish(Status::HttpStatus); }
     std::uint64_t total = 0;
     {
         wchar_t text[32]{};
         DWORD size = sizeof(text);
         if (WinHttpQueryHeaders(request.value, WINHTTP_QUERY_CONTENT_LENGTH, WINHTTP_HEADER_NAME_BY_INDEX, text, &size, WINHTTP_NO_HEADER_INDEX)) total = _wcstoui64(text, nullptr, 10);
     }
+    if (partial) {
+        // Content-Range: bytes <start>-<end>/<size>; the start must match the request.
+        wchar_t text[96]{};
+        DWORD size = sizeof(text);
+        if (!WinHttpQueryHeaders(request.value, WINHTTP_QUERY_CONTENT_RANGE, WINHTTP_HEADER_NAME_BY_INDEX, text, &size, WINHTTP_NO_HEADER_INDEX)) { result.error = ERROR_WINHTTP_INVALID_SERVER_RESPONSE; return finish(Status::Network); }
+        const std::wstring_view range(text);
+        const auto space = range.find(L' '), slash = range.find(L'/');
+        if (space == std::wstring_view::npos || _wcstoui64(text + space + 1, nullptr, 10) != options.range_start) { result.error = ERROR_WINHTTP_INVALID_SERVER_RESPONSE; return finish(Status::Network); }
+        if (slash != std::wstring_view::npos && range[slash + 1] != L'*') result.total = _wcstoui64(text + slash + 1, nullptr, 10);
+        result.partial = true;
+    } else result.total = total;
+    if (options.on_response && !options.on_response(result.partial, result.total)) return finish(Status::Sink);
     if (total > max_bytes) return finish(Status::TooLarge);
 
     std::vector<std::uint8_t> buffer(64 * 1024);

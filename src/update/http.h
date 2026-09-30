@@ -20,6 +20,12 @@ struct Options {
     std::uint64_t min_bytes_per_second{};
     std::chrono::milliseconds throughput_window{20000};
     bool allow_loopback_http{};
+    // Resume: request bytes from this offset. A 206 reply sets Result::partial;
+    // a server that ignores Range answers 200 and the body starts at zero.
+    std::uint64_t range_start{};
+    // Called once after the headers, before any body bytes: (partial, full size or 0).
+    // Returning false aborts with Status::Sink.
+    std::function<bool(bool, std::uint64_t)> on_response;
 };
 enum class Status { Ok, Canceled, BadUrl, Network, HttpStatus, TooLarge, Slow, Sink };
 struct Result {
@@ -27,6 +33,8 @@ struct Result {
     unsigned long error{};        // Win32/WinHTTP error for Network
     unsigned long http_status{};  // for HttpStatus
     std::uint64_t bytes{};
+    bool partial{};               // body continues at Options::range_start
+    std::uint64_t total{};        // full resource size when known (Content-Length / Content-Range)
 };
 // sink returns false to abort (Status::Sink). progress receives (received, content-length or 0).
 Result Get(const std::string& url, std::stop_token stop, std::uint64_t max_bytes,

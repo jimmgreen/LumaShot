@@ -28,6 +28,8 @@ public:
     std::function<bool()> dark_theme;
     std::function<int()> clipboard_format;
     std::function<PinStyle()> sticker_style;
+    // Whether a finished translation replaces the pin image right away (default on).
+    std::function<bool()> translate_auto_show;
     // Screenshot translation: translate the most recently created pin (toolbar
     // button / translate hotkey), deliver finished jobs, and retry pins that were
     // waiting for an engine after the translation settings were saved.

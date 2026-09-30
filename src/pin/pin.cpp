@@ -512,7 +512,7 @@ void PinManager::TranslationReady(uint64_t job){
     p.tr.results=std::move(outcome->texts);
     try{p.tr.image=std::make_shared<Frame>(pin_translation::Render(*p.image,p.tr.blocks,p.tr.results,p.tr.target));}
     catch(const std::exception& e){p.tr.image.reset();p.tr.state=State::Failed;p.tr.error=L"译文渲染失败："+ocr::ErrorMessage(e);UpdatePanel(p);return;}
-    p.tr.state=State::Done;ShowTranslation(p,true);
+    p.tr.state=State::Done;ShowTranslation(p,!translate_auto_show||translate_auto_show());
 }
 void PinManager::TranslationConfigChanged(){
     using State=TranslationView::State;

@@ -62,6 +62,8 @@ Preferences Preferences::LoadFrom(const std::filesystem::path& path) {
     value.clipboard_persist=GetPrivateProfileIntW(L"General",L"ClipboardPersist",0,path.c_str())!=0;
     value.clipboard_strip_visible=GetPrivateProfileIntW(L"General",L"ClipboardStripVisible",1,path.c_str())!=0;
     value.clipboard_strip_hint_shown=GetPrivateProfileIntW(L"General",L"ClipboardStripHintShown",0,path.c_str())!=0;
+    value.translate_auto_show=GetPrivateProfileIntW(L"General",L"TranslateAutoShow",1,path.c_str())!=0;
+    value.settings_page=std::clamp(static_cast<int>(GetPrivateProfileIntW(L"General",L"SettingsPage",0,path.c_str())),0,5);
     value.hotkeys_disabled=GetPrivateProfileIntW(L"General",L"HotkeysDisabled",0,path.c_str())!=0;
     value.disable_hotkeys_in_game=GetPrivateProfileIntW(L"General",L"DisableHotkeysInGame",0,path.c_str())!=0;
     value.paste_as_file=GetPrivateProfileIntW(L"General",L"PasteAsFile",1,path.c_str())!=0;
@@ -124,6 +126,8 @@ void Preferences::SaveTo(const std::filesystem::path& destination) const {
     write(L"ClipboardPersist",clipboard_persist?L"1":L"0");
     write(L"ClipboardStripVisible",clipboard_strip_visible?L"1":L"0");
     write(L"ClipboardStripHintShown",clipboard_strip_hint_shown?L"1":L"0");
+    write(L"TranslateAutoShow",translate_auto_show?L"1":L"0");
+    write(L"SettingsPage",std::to_wstring(std::clamp(settings_page,0,5)));
     write(L"HotkeysDisabled",hotkeys_disabled?L"1":L"0");
     write(L"DisableHotkeysInGame",disable_hotkeys_in_game?L"1":L"0");
     write(L"PasteAsFile",paste_as_file?L"1":L"0");

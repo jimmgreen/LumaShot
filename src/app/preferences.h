@@ -18,6 +18,10 @@ struct Preferences {
     // from the tray or settings. The hint about restoring it is shown only once.
     bool clipboard_strip_visible{true};
     bool clipboard_strip_hint_shown{false};
+    // Switch the pin to the translated rendering as soon as a translation finishes.
+    bool translate_auto_show{true};
+    // Last section shown in the settings window (0 shortcuts … 5 general).
+    int settings_page{};
     bool hotkeys_disabled{false};
     bool disable_hotkeys_in_game{false};
     int paste_file_format{}; // 0: PNG, 1: JPEG, 2: BMP

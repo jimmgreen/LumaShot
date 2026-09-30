@@ -249,7 +249,8 @@ void BuilderTests() {
         && body->Find("messages")->array[0].Text("content") == "Hello\nWorld \"quoted\"", "qwen-mt uses translation_options and newline protocol");
     auto hunyuan = Make("siliconflow", "https://api.siliconflow.cn/v1");
     body = json::Parse(BuildRequest(hunyuan, job, {}).body);
-    Expect(body && body->Find("messages")->array[0].Text("content").find("翻译成中文") != std::string::npos, "hunyuan-mt prompt template");
+    Expect(body && body->Find("messages")->array[0].Text("content").find("将以下文本翻译为中文") != std::string::npos, "hunyuan-mt prompt template");
+    Expect(BuildRequest(hunyuan, job, {}).body.find("top_k") == std::string::npos, "cloud hunyuan keeps provider sampling");
 
     auto deepl_free = Make("deepl", "", "abc:fx");
     r = BuildRequest(deepl_free, job, {});

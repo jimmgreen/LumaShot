@@ -9,6 +9,13 @@ int main() {
     uint32_t value=0;check(ParseColorHex(L"#fF4d4F",value)&&value==0xffff4d4f,"mixed case hex");
     check(!ParseColorHex(L"#GG1234",value)&&value==0xffff4d4f,"invalid hex preserves color");
     ColorPicker p;
+    auto sample = MakeFrame({-3, -1, -1, 1});
+    sample.pixels[3] = 0x7f00a1ff;
+    const POINT corner{-2, 0};
+    check(SamplePixelText(sample, corner, PixelColorFormat::Hex) == L"#00A1FF", "desktop point to image pixel");
+    check(SamplePixelText(sample, corner, PixelColorFormat::Rgb) == L"rgb(0, 161, 255)", "RGB channel order");
+    check(SamplePixelText(sample, corner, PixelColorFormat::Binary) == L"0b000000001010000111111111", "24-bit binary with leading zeros");
+    check(SamplePixelText(sample, {-1, 0}, PixelColorFormat::Hex).empty(), "outside capture bounds");
     for(float scale:{1.f,1.5f,2.f}) {
         p.Open(value,{-180,700,-20,730},{-480,0,0,800},scale);
         check(p.bounds.left>=-480&&p.bounds.right<=0&&p.bounds.top>=0&&p.bounds.bottom<=800,"negative origin and DPI bounds");

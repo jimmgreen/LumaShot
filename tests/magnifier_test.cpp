@@ -16,6 +16,8 @@ int main() {
     expect(lens.pixels[1*kMagnifierSize+7]==frame.pixels[110*frame.Width()+191],"next source pixel has its own block");
     expect(lens.pixels[61*kMagnifierSize+61]==0xff1686ff&&lens.pixels[0]==0xff1686ff,"blue crosshair and border");
     const auto edge=MagnifierBounds(monitor,{99,99});expect(edge.right==monitor.right&&edge.bottom==monitor.bottom,"lens stays inside monitor at bottom right");
+    MagnifierPixels(frame,monitor,{99,99},lens.pixels);
+    expect(lens.pixels[62*kMagnifierSize+62]==frame.pixels.back(),"crosshair tracks sampled pixel at monitor edge");
     const auto tiny=MakeFrame({-1,-1,0,0},0xffabcdef);MagnifierPixels(tiny,tiny.bounds,{-1,-1},lens.pixels);
     expect(lens.pixels[kMagnifierSize+1]==0xffabcdef,"tiny source stays in bounds");
     MagnifierPixels(frame,monitor,{-100,-80},lens.pixels);SavePng(lens,L"magnifier-preview.png");

@@ -703,6 +703,8 @@ void Application::Start() {
     state_.hint=preferences_.include_cursor?L"已包含鼠标指针 · 拖动框选 / 单击窗口 · F 全屏 · A 全部屏幕 · Esc 取消":
         L"拖动框选 / 单击窗口 · F 全屏 · A 全部屏幕 · Esc 取消";
     translate_capture_=translate;
+    if (!translate && quick_capture_ == QuickCapture::None && !ipc_client_)
+        state_.hint += L" · 取色 C: HEX / R: RGB / B: 二进制";
     if(translate)state_.hint=L"截图翻译 · 拖动框选要翻译的区域 / 单击窗口 · F 全屏 · Esc 取消";
     // Offline engine: load the model while the user selects the region (after the screen grab).
     if(translate)translate::Prewarm(translate::LoadConfig(translate::DefaultConfigPath()),std::chrono::milliseconds(250));
@@ -1426,6 +1428,28 @@ void Application::Key(View& view,WPARAM key) {
     if(key==VK_ESCAPE){Cancel();return;}
     if(state_.busy)return;
     const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0;
+    if (active_ && frame_ && !state_.selected && !state_.dragging && !pin_edit_id_ &&
+        !translate_capture_ && quick_capture_ == QuickCapture::None && !ipc_client_ &&
+        !control && !((GetKeyState(VK_SHIFT) | GetKeyState(VK_MENU) |
+            GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) &&
+        (key == 'C' || key == 'R' || key == 'B')) {
+        POINT point{};
+        if (!GetCursorPos(&point)) return;
+        const auto format = key == 'C' ? PixelColorFormat::Hex :
+            key == 'R' ? PixelColorFormat::Rgb : PixelColorFormat::Binary;
+        const Frame& source = cursor_patch_ && PtInRect(&cursor_patch_->bounds, point)
+            ? *cursor_patch_ : *frame_;
+        const auto text = SamplePixelText(source, point, format);
+        if (text.empty()) return;
+        try { CopyText(main_, text); }
+        catch (const std::exception&) {
+            state_.hint = L"复制颜色失败，请释放剪贴板后重试 · Esc 取消";
+            Invalidate();
+            return;
+        }
+        Cancel();
+        return;
+    }
     if(control&&key=='Z'){document_.Undo();SyncSelectedProperties();Invalidate();return;}
     if(control&&key=='Y'){document_.Redo();SyncSelectedProperties();Invalidate();return;}
     if(control&&key=='S'){Finish(true);return;}

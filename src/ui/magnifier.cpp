@@ -13,13 +13,13 @@ void MagnifierPixels(const Frame& frame,RECT monitor,POINT pointer,std::span<uin
     if(output.size()!=kMagnifierSize*kMagnifierSize)throw std::invalid_argument("Invalid magnifier surface");
     RECT source{};
     if(!IntersectRect(&source,&monitor,&frame.bounds))throw std::invalid_argument("Magnifier outside screenshot");
-    const LONG sx=std::clamp(pointer.x-10,source.left,std::max(source.left,source.right-20));
-    const LONG sy=std::clamp(pointer.y-10,source.top,std::max(source.top,source.bottom-20));
+    const LONG sx=pointer.x-10;
+    const LONG sy=pointer.y-10;
     for(int y=0;y<kMagnifierSize;++y)for(int x=0;x<kMagnifierSize;++x) {
         uint32_t color=0xff1686ff;
         if(x>0&&y>0&&x<121&&y<121&&x!=61&&y!=61) {
-            const LONG px=std::min(sx+(x-1)/6,source.right-1)-frame.bounds.left;
-            const LONG py=std::min(sy+(y-1)/6,source.bottom-1)-frame.bounds.top;
+            const LONG px=std::clamp(sx+(x-1)/6,source.left,source.right-1)-frame.bounds.left;
+            const LONG py=std::clamp(sy+(y-1)/6,source.top,source.bottom-1)-frame.bounds.top;
             color=frame.pixels[static_cast<size_t>(py)*frame.Width()+px]|0xff000000;
         }
         output[static_cast<size_t>(y)*kMagnifierSize+x]=color;

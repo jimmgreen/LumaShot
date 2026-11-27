@@ -67,11 +67,11 @@ set_tests_properties(recording_performance PROPERTIES TIMEOUT 50)
 add_test(NAME cursor_capture COMMAND lumashot_capture_test)
 add_library(lumashot_ui STATIC src/model/document.cpp src/model/mosaic.cpp src/ui/render.cpp src/ui/toolbar.cpp src/ui/color_picker.cpp src/ui/color_picker_render.cpp src/ui/magnifier.cpp)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated/rotation_cursor.rc" "${CMAKE_BINARY_DIR}/generated/rotation.cur"
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated/rotation_cursor.rc" "${CMAKE_BINARY_DIR}/generated/rotation.cur" "${CMAKE_BINARY_DIR}/generated/capture.cur"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/compile-rotation-cursor.py" "${CMAKE_BINARY_DIR}/generated"
     DEPENDS scripts/compile-rotation-cursor.py VERBATIM)
 set_source_files_properties("${CMAKE_BINARY_DIR}/generated/rotation_cursor.rc" PROPERTIES
-    OBJECT_DEPENDS "${CMAKE_BINARY_DIR}/generated/rotation.cur")
+    OBJECT_DEPENDS "${CMAKE_BINARY_DIR}/generated/rotation.cur;${CMAKE_BINARY_DIR}/generated/capture.cur")
 # INTERFACE embeds the resource in each consuming executable, not in the static archive.
 target_sources(lumashot_ui INTERFACE "${CMAKE_BINARY_DIR}/generated/rotation_cursor.rc")
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated/brand_svg_data.inc"

@@ -134,7 +134,7 @@ int Application::Run(bool capture_now,bool demo,bool diagnostic_session) {
     main_class.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(IDI_LUMASHOT));
     CheckWin32(RegisterClassW(&main_class)!=0,"Register host window");
     WNDCLASSW overlay_class{};overlay_class.style=CS_DBLCLKS;overlay_class.lpfnWndProc=OverlayProc;
-    overlay_class.hInstance=instance;overlay_class.lpszClassName=L"LumaShot.Overlay";overlay_class.hCursor=LoadCursorW(nullptr,IDC_CROSS);
+    overlay_class.hInstance=instance;overlay_class.lpszClassName=L"LumaShot.Overlay";overlay_class.hCursor=ui::CaptureCursor(GetDpiForSystem());
     overlay_class.hIcon=main_class.hIcon;
     CheckWin32(RegisterClassW(&overlay_class)!=0,"Register capture window");
     main_=CreateWindowExW(WS_EX_TOOLWINDOW,main_class.lpszClassName,L"LumaShot",WS_POPUP,0,0,0,0,nullptr,nullptr,instance,this);
@@ -1613,9 +1613,11 @@ LRESULT CALLBACK Application::OverlayProc(HWND window,UINT message,WPARAM wp,LPA
             const bool selecting=!state.selected||(!state.busy&&!state.picker.open&&
                 !Contains(state.toolbar,p)&&!Contains(state.selection,p,7*state.toolbar.scale));
             if(app->TextEditHit(p)){SetCursor(LoadCursorW(nullptr,IDC_IBEAM));return TRUE;}
-            LPCWSTR cursor_id=selecting?IDC_CROSS:(state.tool==Tool::Text&&Contains(state.selection,p)?IDC_IBEAM:IDC_ARROW);
-            const auto edit_cursor=ui::SelectionEditCursor(app->document_,state,p,GetDpiForWindow(window),app->mark_moving_?app->mark_handle_:-1);
-            SetCursor(edit_cursor?edit_cursor:LoadCursorW(nullptr,cursor_id));return TRUE;
+            const UINT dpi=GetDpiForWindow(window);
+            auto handle=ui::SelectionEditCursor(app->document_,state,p,dpi,app->mark_moving_?app->mark_handle_:-1);
+            if(!handle)handle=selecting?ui::CaptureCursor(dpi):
+                LoadCursorW(nullptr,state.tool==Tool::Text&&Contains(state.selection,p)?IDC_IBEAM:IDC_ARROW);
+            SetCursor(handle);return TRUE;
         }
         case WM_DPICHANGED:PostMessageW(app->main_,kCancel,0,0);return 0;
         default:break;

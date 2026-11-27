@@ -55,19 +55,44 @@ def raster(size):
     return header+pixels+mask
 
 
-def main():
-    dest = pathlib.Path(sys.argv[1])
-    dest.mkdir(parents=True,exist_ok=True)
+def capture_crosshair(size):
+    stride = ((size + 31) // 32) * 4
+    mask = bytearray([255]) * (stride * size)
+    pixels = bytearray()
+    scale = size / 32
+    for y in reversed(range(size)):
+        for x in range(size):
+            dx, dy = sorted((abs(x - size // 2), abs(y - size // 2)))
+            # Four outlined arms leave the exact sampling point unobstructed.
+            outline = dx <= round(scale) and 2 * scale <= dy <= 12 * scale
+            core = outline and dx < scale / 2 and 3 * scale <= dy <= 11 * scale
+            ink = 255 if core else 0
+            pixels.extend((ink, ink, ink, 255 if outline else 0))
+            if outline:
+                mask[(size-1-y)*stride + x//8] &= ~(128 >> (x%8))
+    header = struct.pack('<IiiHHIIiiII',40,size,size*2,1,32,0,len(pixels)+len(mask),0,0,0,0)
+    return header + pixels + mask
+
+
+def write_cursor(path, render):
     sizes = (32,40,48,64,96,128)
-    blobs = [raster(s) for s in sizes]
+    blobs = [render(s) for s in sizes]
     offset = 6+16*len(sizes)
     data = bytearray(struct.pack('<HHH',0,2,len(sizes)))
     for size, blob in zip(sizes,blobs):
         data.extend(struct.pack('<BBBBHHII',size,size,0,0,size//2,size//2,len(blob),offset))
         offset += len(blob)
-    path = dest/'rotation.cur'
     path.write_bytes(data+b''.join(blobs))
-    (dest/'rotation_cursor.rc').write_text('4201 CURSOR "'+path.resolve().as_posix()+'"\n',encoding='utf-8')
+
+
+def main():
+    dest = pathlib.Path(sys.argv[1]).resolve()
+    dest.mkdir(parents=True,exist_ok=True)
+    write_cursor(dest/'rotation.cur', raster)
+    write_cursor(dest/'capture.cur', capture_crosshair)
+    (dest/'rotation_cursor.rc').write_text(
+        f'4201 CURSOR "{dest.as_posix()}/rotation.cur"\n4202 CURSOR "{dest.as_posix()}/capture.cur"\n',
+        encoding='utf-8')
 
 
 if __name__ == '__main__':

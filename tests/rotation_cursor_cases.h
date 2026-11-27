@@ -63,6 +63,16 @@ static void RotationCursorCases(Application& app,Application::View& view,Expect 
     for(int y=0;y<gallery.Height();++y)for(int x=600;x<1200;++x)gallery.pixels[static_cast<size_t>(y)*1200+x]=0xff17202c;
     for(size_t i=0;i<dpis.size();++i){
         const UINT dpi=dpis[i];const auto cursor=ui::RotationCursor(dpi);cursors[i]=cursor;
+        const auto capture=ui::CaptureCursor(dpi);
+        expect(capture && capture!=LoadCursorW(nullptr,IDC_CROSS),"capture uses the outlined crosshair resource");
+        for(const auto background:{0xffffffffu,0xff000000u}){
+            auto sample=MakeFrame({0,0,160,160},background);
+            FrozenCursor::Copy(capture,{80,80}).Composite(sample);
+            const uint32_t opposite=background^0x00ffffffu;
+            expect(std::find(sample.pixels.begin(),sample.pixels.end(),opposite)!=sample.pixels.end(),
+                "capture crosshair remains visible on white and black");
+            expect(sample.pixels[80*160+80]==background,"hotspot leaves the sampling pixel visible");
+        }
         expect(cursor&&cursor!=LoadCursorW(nullptr,IDC_HAND)&&cursor!=LoadCursorW(nullptr,IDC_CROSS),"rotation uses a dedicated circular-arrow cursor, not a hand or fallback");
         ICONINFO icon{};const bool ok=GetIconInfo(cursor,&icon)!=FALSE;expect(ok,"rotation cursor exposes valid Win32 icon metadata");
         if(ok){BITMAP bitmap{};GetObjectW(icon.hbmColor,sizeof(bitmap),&bitmap);const int size=MulDiv(32,static_cast<int>(dpi),96);

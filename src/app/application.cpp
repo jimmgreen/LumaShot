@@ -837,7 +837,7 @@ void Application::ShowViews() try {
     // Same rule for the magnifier (closed after every capture): its window and first
     // layered frame are created hidden, so the first visible hover only moves it.
     if(!state_.selected&&!state_.dragging&&!state_.busy){const POINT pointer=NativePoint(state_.pointer);
-        for(const auto& view:views_)if(PtInRect(&view->bounds,pointer)){magnifier_.Prepare(view->window,*frame_,view->bounds,pointer);break;}}
+        for(const auto& view:views_)if(PtInRect(&view->bounds,pointer)){magnifier_.Prepare(view->window,*frame_,view->bounds,pointer,ColorAt(pointer));break;}}
     HWND focus=views_.front()->window;
     for(auto& view:views_) {
         ShowWindow(view->window,SW_SHOWNOACTIVATE);UpdateWindow(view->window);
@@ -850,11 +850,20 @@ void Application::ShowViews() try {
     // that prevents every subsequent capture attempt.
     if(ipc_client_)client_exit_=1;Cancel(false);throw;
 }
+bool Application::CanSampleColor() const {
+    return active_ && frame_ && !state_.selected && !state_.dragging && !state_.busy &&
+        !pin_edit_id_ && !translate_capture_ && quick_capture_ == QuickCapture::None && !ipc_client_;
+}
+std::optional<uint32_t> Application::ColorAt(POINT point) const {
+    if (!CanSampleColor()) return {};
+    const Frame& source = cursor_patch_ && PtInRect(&cursor_patch_->bounds, point) ? *cursor_patch_ : *frame_;
+    return SamplePixelColor(source, point);
+}
 void Application::UpdateMagnifier() {
     if(!active_||!frame_||state_.selected||state_.dragging||state_.busy){magnifier_.Hide();return;}
     const POINT pointer=NativePoint(state_.pointer);
     for(const auto& view:views_)if(PtInRect(&view->bounds,pointer)){
-        magnifier_.Show(view->window,*frame_,view->bounds,pointer);return;
+        magnifier_.Show(view->window,*frame_,view->bounds,pointer,ColorAt(pointer));return;
     }
     magnifier_.Hide();
 }
@@ -1426,6 +1435,23 @@ void Application::Key(View& view,WPARAM key) {
     if(key==VK_ESCAPE){Cancel();return;}
     if(state_.busy)return;
     const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0;
+    if (CanSampleColor() &&
+        !control && !((GetKeyState(VK_SHIFT) | GetKeyState(VK_MENU) |
+            GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) &&
+        (key == 'C' || key == 'R')) {
+        POINT point{};
+        if (!GetCursorPos(&point)) return;
+        const auto color = ColorAt(point);
+        if (!color) return;
+        try { CopyText(main_, key == 'C' ? ColorHex(*color) : ColorRgb(*color)); }
+        catch (const std::exception&) {
+            state_.hint = L"复制颜色失败，请释放剪贴板后重试 · Esc 取消";
+            Invalidate();
+            return;
+        }
+        Cancel();
+        return;
+    }
     if(control&&key=='Z'){document_.Undo();SyncSelectedProperties();Invalidate();return;}
     if(control&&key=='Y'){document_.Redo();SyncSelectedProperties();Invalidate();return;}
     if(control&&key=='S'){Finish(true);return;}

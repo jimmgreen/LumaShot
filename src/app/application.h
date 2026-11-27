@@ -67,6 +67,8 @@ private:
     void Cancel(bool close_demo=true);
     void ShowViews();
     void CreateViews();
+    bool CanSampleColor() const;
+    std::optional<uint32_t> ColorAt(POINT point) const;
     void UpdateMagnifier();
     void Invalidate();
     void PointerDown(View&,Point);

@@ -1,4 +1,5 @@
 #include "ui/color_picker.h"
+#include "capture/frame.h"
 #include <algorithm>
 #include <cmath>
 namespace lumashot {
@@ -14,6 +15,15 @@ uint32_t FromHsv(Hsv h) {
     const auto byte=[&](float v){return static_cast<uint32_t>(std::lround((v+m)*255));};return 0xff000000|(byte(r)<<16)|(byte(g)<<8)|byte(b);
 }
 std::wstring ColorHex(uint32_t color){wchar_t text[8]{};swprintf_s(text,L"#%06X",color&0xffffff);return text;}
+std::optional<uint32_t> SamplePixelColor(const Frame& frame, POINT point) {
+    if (!PtInRect(&frame.bounds, point)) return {};
+    const auto row = PixelsOf(frame).Row(point.y - frame.bounds.top);
+    return row[point.x - frame.bounds.left] & 0xffffff;
+}
+std::wstring ColorRgb(uint32_t color) {
+    return L"rgb(" + std::to_wstring((color >> 16) & 255) + L", " +
+        std::to_wstring((color >> 8) & 255) + L", " + std::to_wstring(color & 255) + L")";
+}
 bool ParseColorHex(std::wstring text,uint32_t& color) {
     if(!text.empty()&&text.front()==L'#')text.erase(0,1);if(text.size()!=6)return false;
     uint32_t n=0;for(auto c:text){int digit=c>=L'0'&&c<=L'9'?c-L'0':(c>=L'a'&&c<=L'f'?c-L'a'+10:(c>=L'A'&&c<=L'F'?c-L'A'+10:-1));if(digit<0)return false;n=(n<<4)|static_cast<uint32_t>(digit);}color=0xff000000|n;return true;

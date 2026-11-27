@@ -1,4 +1,4 @@
-﻿#include "app/hotkeys.h"
+#include "app/hotkeys.h"
 #include "app/settings_dialog.h"
 #include "app/translation_settings.h"
 #include "ui/acrylic.h"
@@ -50,6 +50,7 @@ constexpr int NavIndex(int id){for(int i=0;i<PageCount;++i)if(NavIds[i]==id)retu
 constexpr std::array<int,std::size(CustomizableToolbarIds)> ChipIds{151,152,153,154,155,156,157,175,158,159,160,161};
 constexpr int ChipFirst=151;
 constexpr int LabelSegFirst=162,AutoPropertiesToggle=165,PropertyStyleSegFirst=176;
+constexpr int ToolbarSurfaceSegFirst=178;
 // 剪贴板 page: 最多保留 segment (ClipboardLimitChoices), 样式 segment (卡片堆叠 / 经典细条) and the
 // 卡片显示内容预览 switch. 关于 page: 项目主页 and 第三方许可 buttons.
 constexpr int LimitSegFirst=166,StyleSegFirst=170,CardPreviewToggle=172,HomepageButton=173,NoticesButton=174;
@@ -60,14 +61,14 @@ constexpr bool IsChip(int id){for(int chip:ChipIds)if(chip==id)return true;retur
 constexpr int ChipEntry(int id){for(size_t i=0;i<ChipIds.size();++i)if(ChipIds[i]==id)return CustomizableToolbarIds[i];return -1;}
 constexpr int ChipControl(int entry){for(size_t i=0;i<std::size(CustomizableToolbarIds);++i)if(CustomizableToolbarIds[i]==entry)return ChipIds[i];return -1;}
 constexpr float CaptureCards[]={102,272,396};
-constexpr float ZoneTopPanel=102,ZoneTopMore=218,ZoneHeight=84,ChipHeight=32,ChipGap=4,ChipRow=36,ToolbarDisplayTop=334;
+constexpr float ZoneTopPanel=102,ZoneTopMore=218,ZoneHeight=84,ChipHeight=32,ChipGap=4,ChipRow=36,ToolbarDisplayTop=334,ToolbarSurfaceTop=276;
 constexpr float PinLineTop=266,AboutUpdateTop=184;
 constexpr const wchar_t* ChipLabel(int entry){
     switch(entry){case 0:return L"选择";case 1:return L"矩形";case 2:return L"圆形";case 3:return L"箭头";case 4:return L"铅笔";case 5:return L"文字";case 6:return L"马赛克";
     case 14:return L"序号";case 13:return L"贴图";case 15:return L"识别文字";case 18:return L"截图翻译";case 17:return L"长截图";case 16:return L"录制";default:return L"";}
 }
 constexpr float ChipWidth(int entry){return 44+13.f*static_cast<float>(std::char_traits<wchar_t>::length(ChipLabel(entry)));}
-constexpr int Controls[]={142,143,148,144,145,146,135,136,137,138,139,140,149,150,151,152,153,154,155,156,157,175,158,159,160,161,162,163,164,165,176,177,166,167,168,169,170,171,172,173,174,103,119,120,128,133,134,141,101,115,126,132,129,127,131,130,116,117,118,121,122,123,124,125,110,111,112,147,113,IDOK,IDCANCEL,114};
+constexpr int Controls[]={142,143,148,144,145,146,135,136,137,138,139,140,149,150,151,152,153,154,155,156,157,175,158,159,160,161,162,163,164,165,176,177,178,179,166,167,168,169,170,171,172,173,174,103,119,120,128,133,134,141,101,115,126,132,129,127,131,130,116,117,118,121,122,123,124,125,110,111,112,147,113,IDOK,IDCANCEL,114};
 // Page that owns a control; -1 for the always-visible sidebar and footer.
 constexpr int PageOf(int id){
     switch(id){
@@ -77,6 +78,7 @@ constexpr int PageOf(int id){
     case 126:case 132:case 129:case 166:case 167:case 168:case 169:case 170:case 171:case 172:return 4;
     case 121:case 122:case 123:case 124:case 125:case 147:return 5;
     case 110:case 111:case 112:return 6;
+    case ToolbarSurfaceSegFirst:case ToolbarSurfaceSegFirst+1:return 6;
     case 131:case 173:case 174:return 7;
     case PropertyStyleSegFirst:case PropertyStyleSegFirst+1:return 3;
     default:return (id>=ChipFirst&&id<=AutoPropertiesToggle)||IsChip(id)?3:-1;
@@ -336,6 +338,7 @@ struct Settings {
         place(147,ContentRight-68,PinLineTop+14,52,30);
         // 外观
         for(int i=0;i<3;++i)place(110+i,236+i*140.f,130,128,96);
+        for(int i=0;i<2;++i)place(ToolbarSurfaceSegFirst+i,ContentRight-12-float(2-i)*88,ToolbarSurfaceTop+8,86,30);
         // 关于
         place(131,ContentRight-126,AboutUpdateTop+11,110,36);place(HomepageButton,ContentRight-126,AboutUpdateTop+RowHeight+11,110,36);place(NoticesButton,ContentRight-126,AboutUpdateTop+2*RowHeight+11,110,36);
         place(113,SideWidth+14,FooterTop+12,116,36);place(IDCANCEL,ContentRight-176,FooterTop+12,84,36);place(IDOK,ContentRight-84,FooterTop+12,84,36);
@@ -444,7 +447,7 @@ struct Settings {
             text(L"LumaShot 设置",{58,17,SideWidth-6,37},15,ink,false,true);text(L"截图 · 贴图 · 录屏",{58,37,SideWidth-6,53},11,muted);
             text(L"版本 "+update::VersionText(update::CurrentVersion()),{20,522,SideWidth-10,542},11,faint);
             static constexpr const wchar_t* titles[]{L"常规",L"快捷键",L"截图",L"工具面板",L"剪贴板",L"贴图",L"外观",L"关于"};
-            static constexpr const wchar_t* subtitles[]{L"启动方式和后台行为",L"全局生效；点击后按下新组合，Esc 取消，退格清除",L"截图内容、复制格式、文字识别和翻译",L"点击工具在“面板上”和“更多”菜单之间移动，拖动调整顺序",L"开启后记录复制过的文字和图片，仅保存在本机",L"钉在桌面上的截图外观，保存后立即生效",L"界面主题；工具面板、剪贴板和贴图菜单统一跟随",L"版本、更新与开源许可"};
+            static constexpr const wchar_t* subtitles[]{L"启动方式和后台行为",L"全局生效；点击后按下新组合，Esc 取消，退格清除",L"截图内容、复制格式、文字识别和翻译",L"点击工具在“面板上”和“更多”菜单之间移动，拖动调整顺序",L"开启后记录复制过的文字和图片，仅保存在本机",L"钉在桌面上的截图外观，保存后立即生效",L"界面主题与截图工具栏背景；其余面板跟随主题",L"版本、更新与开源许可"};
             text(titles[page],{ContentLeft,18,ContentRight-48,48},20,ink,false,true);text(subtitles[page],{ContentLeft,50,ContentRight,70},12,muted);
             const auto group=[&](const std::wstring& label,float top){text(label,{ContentLeft+2,top,ContentRight,top+20},12.5f,muted,false,true);};
             if(reset_armed)text(L"再点一次，恢复“"+std::wstring(titles[page])+L"”页的默认值",{SideWidth+138,FooterTop+12,ContentRight-184,FooterTop+48},12,warn_ink);
@@ -520,6 +523,12 @@ struct Settings {
                 break;}
             case 6:{
                 card(CardTop,236);text(L"界面主题",{ContentLeft+16,CardTop+10,ContentRight,CardTop+34},14,ink);
+                group(L"截图工具栏",ToolbarSurfaceTop-22);card(ToolbarSurfaceTop,ToolbarSurfaceTop+RowHeight);
+                {const bool solid=draft.toolbar.surface_style==ToolbarSurfaceStyle::Solid;
+                 row(ToolbarSurfaceTop,0,L"面板材质",solid?L"纯白底框配深色图标，黑底更易辨认":L"亚克力模糊桌面背景",false,true,true,true);
+                 const float left=ContentRight-16-2*88.f,right=ContentRight-8;
+                 const auto segment=D2D1::RoundedRect({left,ToolbarSurfaceTop+5,right,ToolbarSurfaceTop+41},8,8);
+                 color(dark?0x000000:0xffffff,dark?.22f:.9f);target->FillRoundedRectangle(segment,brush.Get());color(border);target->DrawRoundedRectangle(segment,brush.Get());}
                 break;}
             default:{
                 card(CardTop,CardTop+84);app_icon.Draw(target.Get(),{ContentLeft+18,CardTop+20,ContentLeft+62,CardTop+64},true);
@@ -593,8 +602,9 @@ struct Settings {
                 if(focus&&!selected){color(accent);target->DrawRoundedRectangle(D2D1::RoundedRect(r,8,8),brush.Get());}
                 wchar_t label[32]{};GetDlgItemTextW(window,control,label,32);text(label,{0,68,w,h},12.5f,selected?accent_ink:muted,true,selected);
             }
-            else if((control>=116&&control<=118)||(control>=LabelSegFirst&&control<LabelSegFirst+3)||(control>=LimitSegFirst&&control<LimitSegFirst+4)||control==StyleSegFirst||control==StyleSegFirst+1||control==PropertyStyleSegFirst||control==PropertyStyleSegFirst+1){
-                const bool selected=control<=118?draft.paste_file_format==control-116:control<LabelSegFirst+3?static_cast<int>(draft.toolbar.labels)==control-LabelSegFirst:
+            else if((control>=116&&control<=118)||(control>=LabelSegFirst&&control<LabelSegFirst+3)||(control>=LimitSegFirst&&control<LimitSegFirst+4)||control==StyleSegFirst||control==StyleSegFirst+1||control==PropertyStyleSegFirst||control==PropertyStyleSegFirst+1||(control>=ToolbarSurfaceSegFirst&&control<ToolbarSurfaceSegFirst+2)){
+                const bool selected=control>=ToolbarSurfaceSegFirst?static_cast<int>(draft.toolbar.surface_style)==control-ToolbarSurfaceSegFirst:
+                    control<=118?draft.paste_file_format==control-116:control<LabelSegFirst+3?static_cast<int>(draft.toolbar.labels)==control-LabelSegFirst:
                     control>=PropertyStyleSegFirst?static_cast<int>(draft.toolbar.property_style)==control-PropertyStyleSegFirst:
                     control<LimitSegFirst+4?draft.clipboard_max_entries==ClipboardLimitChoices[static_cast<size_t>(control-LimitSegFirst)]:draft.clipboard_classic_strip==(control==StyleSegFirst+1);
                 if(selected){color(dark?selected_fill:0xe2efff,disabled?.5f:1.f);target->FillRoundedRectangle(D2D1::RoundedRect(r,6,6),brush.Get());}
@@ -756,6 +766,7 @@ struct Settings {
             else if(id>=LabelSegFirst&&id<LabelSegFirst+3)p->draft.toolbar.labels=static_cast<ToolbarLabels>(id-LabelSegFirst);
             else if(id==AutoPropertiesToggle)p->draft.toolbar.auto_properties=!p->draft.toolbar.auto_properties;
             else if(id==PropertyStyleSegFirst||id==PropertyStyleSegFirst+1)p->draft.toolbar.property_style=static_cast<PropertyBarStyle>(id-PropertyStyleSegFirst);
+            else if(id==ToolbarSurfaceSegFirst||id==ToolbarSurfaceSegFirst+1)p->draft.toolbar.surface_style=static_cast<ToolbarSurfaceStyle>(id-ToolbarSurfaceSegFirst);
             else if(id==113){if(!p->reset_armed)p->reset_armed=true;else{p->reset_armed=false;ResetSettingsPage(p->draft,p->page);if(p->page==2)p->ocr_hint.clear();p->Layout();}}
             else if(id>=LimitSegFirst&&id<LimitSegFirst+4)p->draft.clipboard_max_entries=ClipboardLimitChoices[static_cast<size_t>(id-LimitSegFirst)];
             else if((id==StyleSegFirst||id==StyleSegFirst+1)&&p->draft.clipboard_enabled&&p->draft.clipboard_strip_visible)p->draft.clipboard_classic_strip=id==StyleSegFirst+1;
@@ -783,7 +794,7 @@ void ResetSettingsPage(Preferences& p,int page){
     case 4:p.clipboard_enabled=d.clipboard_enabled;p.clipboard_persist=d.clipboard_persist;p.clipboard_strip_visible=d.clipboard_strip_visible;
         p.clipboard_max_entries=d.clipboard_max_entries;p.clipboard_classic_strip=d.clipboard_classic_strip;p.clipboard_card_preview=d.clipboard_card_preview;break;
     case 5:p.pin_style=d.pin_style;p.clothesline_enabled=d.clothesline_enabled;break;
-    case 6:p.theme=d.theme;break;
+    case 6:p.theme=d.theme;p.toolbar.surface_style=d.toolbar.surface_style;break;
     default:break;
     }
 }

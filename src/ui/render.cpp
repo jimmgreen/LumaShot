@@ -3,6 +3,7 @@
 #include "model/note_color.h"
 #include "model/selection.h"
 #include "ui/selection_render.h"
+#include "ui/acrylic.h"
 #include "capture/cursor.h"
 #include "app/diagnostics.h"
 #include <wincodec.h>
@@ -183,7 +184,7 @@ void Renderer::Marks(const Frame& frame, const Document& document, const std::op
     if (draft) MarkShape(frame,*draft,document.marks.size());
 }
 
-void Renderer::Panel(Box rect, ID2D1Bitmap* acrylic, const Frame& frame, bool dark, float radius) {
+void Renderer::Panel(Box rect, ID2D1Bitmap* acrylic, const Frame& frame, bool dark, float radius,bool acrylic_surface) {
     const auto rr = D2D1::RoundedRect(Rect(rect), radius, radius);
     Brush(0x22000000);
     auto shadow = rect; shadow.top += 3; shadow.bottom += 4;
@@ -191,15 +192,20 @@ void Renderer::Panel(Box rect, ID2D1Bitmap* acrylic, const Frame& frame, bool da
     ComPtr<ID2D1RoundedRectangleGeometry> geometry;
     Check(factory_->CreateRoundedRectangleGeometry(rr, &geometry));
     target_->PushLayer(D2D1::LayerParameters(Rect(rect),geometry.Get()),nullptr);
-    const auto bitmap_size=acrylic->GetSize();
-    const float sx=bitmap_size.width/float(frame.Width()),sy=bitmap_size.height/float(frame.Height());
-    target_->DrawBitmap(acrylic,Rect(rect),1,D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-        D2D1::RectF((rect.left-frame.bounds.left)*sx,(rect.top-frame.bounds.top)*sy,
-            (rect.right-frame.bounds.left)*sx,(rect.bottom-frame.bounds.top)*sy));
-    Brush(dark ? 0x9423354b : 0x80eaf3ff);  // tint over the blurred capture: light 50%, dark 58% (was 77% / 66%)
-    target_->FillRectangle(Rect(rect),brush_.Get());
+    if(acrylic_surface) {
+        const auto bitmap_size=acrylic->GetSize();
+        const float sx=bitmap_size.width/float(frame.Width()),sy=bitmap_size.height/float(frame.Height());
+        target_->DrawBitmap(acrylic,Rect(rect),1,D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+            D2D1::RectF((rect.left-frame.bounds.left)*sx,(rect.top-frame.bounds.top)*sy,
+                (rect.right-frame.bounds.left)*sx,(rect.bottom-frame.bounds.top)*sy));
+        Brush(dark ? 0x9423354b : 0x80eaf3ff);  // tint over the blurred capture: light 50%, dark 58% (was 77% / 66%)
+        target_->FillRectangle(Rect(rect),brush_.Get());
+    } else {
+        Brush(0xffffffff);
+        target_->FillRoundedRectangle(rr,brush_.Get());
+    }
     target_->PopLayer();
-    Brush(dark ? 0x557b8da5 : 0xd9ffffff);
+    Brush(acrylic_surface?(dark ? 0x557b8da5 : 0xd9ffffff):0xffcbd5e0);
     target_->DrawRoundedRectangle(rr,brush_.Get(),1);
 }
 

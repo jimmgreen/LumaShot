@@ -80,6 +80,8 @@ BEGIN
     CONTROL "仅图标", 164, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "窄条", 176, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "卡片", 177, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "亚克力", 178, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
+    CONTROL "纯白面板", 179, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "自动展开属性栏", 165, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "恢复本页默认", 113, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1
     CONTROL "取消", IDCANCEL, "Button", BS_OWNERDRAW | WS_TABSTOP, 0, 0, 1, 1

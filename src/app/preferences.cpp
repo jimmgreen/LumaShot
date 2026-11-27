@@ -60,6 +60,7 @@ static ToolbarCustomization LoadToolbarCustomization(const std::filesystem::path
     value.labels=labels>=0&&labels<=2?static_cast<ToolbarLabels>(labels):ToolbarLabels::Auto;
     value.auto_properties=GetPrivateProfileIntW(L"Toolbar",L"AutoProperties",1,path.c_str())!=0;
     value.property_style=GetPrivateProfileIntW(L"Toolbar",L"PropertyStyle",0,path.c_str())==1?PropertyBarStyle::Card:PropertyBarStyle::Strip;
+    value.surface_style=GetPrivateProfileIntW(L"Toolbar",L"SurfaceStyle",0,path.c_str())==1?ToolbarSurfaceStyle::Solid:ToolbarSurfaceStyle::Acrylic;
     value.Normalize();return value;
 }
 Preferences Preferences::Load() {
@@ -186,6 +187,7 @@ void Preferences::SaveTo(const std::filesystem::path& destination) const {
         put(L"Order",FormatToolbarIds(layout.order));put(L"Overflow",FormatToolbarIds(layout.overflow));
         put(L"Labels",std::to_wstring(static_cast<int>(layout.labels)));put(L"AutoProperties",layout.auto_properties?L"1":L"0");
         put(L"PropertyStyle",layout.property_style==PropertyBarStyle::Card?L"1":L"0");
+        put(L"SurfaceStyle",std::to_wstring(static_cast<int>(layout.surface_style)));
     }
     // Remove obsolete tool selection while preserving all style preferences.
     if(!WritePrivateProfileStringW(L"General",L"LastTool",nullptr,temporary.c_str()))

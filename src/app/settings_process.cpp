@@ -14,7 +14,7 @@ struct Handle {
     ~Handle(){if(value&&value!=INVALID_HANDLE_VALUE)CloseHandle(value);}
 };
 struct Values {UINT modifiers,key,cursor,theme,paste_as_file,paste_file_format,gif_modifiers,gif_key,video_modifiers,video_key,pin_style,clipboard_enabled,start_with_windows,clipboard_modifiers,clipboard_key,clipboard_persist,update_auto_check,clipboard_strip_visible,translate_modifiers,translate_key,translate_auto_show,settings_page,ocr_modifiers,ocr_key,pin_modifiers,pin_key,ocr_remove_whitespace,clothesline_enabled,selection_modifiers,selection_key;wchar_t ocr_model_directory[32768];
-    UINT toolbar_order[std::size(CustomizableToolbarIds)],toolbar_overflow[std::size(CustomizableToolbarIds)],toolbar_overflow_count,toolbar_labels,toolbar_auto_properties,toolbar_property_style;
+    UINT toolbar_order[std::size(CustomizableToolbarIds)],toolbar_overflow[std::size(CustomizableToolbarIds)],toolbar_overflow_count,toolbar_labels,toolbar_auto_properties,toolbar_property_style,toolbar_surface_style;
     UINT clipboard_max_entries,clipboard_classic_strip,clipboard_card_preview;};
 // command: 0 = save request, 1 = "check for updates now" (host answers immediately).
 struct Exchange {UINT version;Values values;UINT accepted;LONG recording;UINT command;};
@@ -34,16 +34,17 @@ Values Encode(const Preferences& p){Values values{p.modifiers,p.key,p.include_cu
     values.toolbar_overflow_count=static_cast<UINT>(std::min(layout.overflow.size(),std::size(values.toolbar_overflow)));
     values.toolbar_labels=static_cast<UINT>(layout.labels);values.toolbar_auto_properties=layout.auto_properties?1u:0u;
     values.toolbar_property_style=static_cast<UINT>(layout.property_style);
+    values.toolbar_surface_style=static_cast<UINT>(layout.surface_style);
     values.clipboard_max_entries=static_cast<UINT>(p.clipboard_max_entries);values.clipboard_classic_strip=p.clipboard_classic_strip?1u:0u;values.clipboard_card_preview=p.clipboard_card_preview?1u:0u;
     return values;
 }
 // The order must be a permutation of the customizable ids; overflow a duplicate-free subset.
 bool DecodeToolbar(const Values& values,ToolbarCustomization& out){
-    if(values.toolbar_overflow_count>std::size(values.toolbar_overflow)||values.toolbar_labels>2||values.toolbar_auto_properties>1||values.toolbar_property_style>1)return false;
+    if(values.toolbar_overflow_count>std::size(values.toolbar_overflow)||values.toolbar_labels>2||values.toolbar_auto_properties>1||values.toolbar_property_style>1||values.toolbar_surface_style>1)return false;
     std::vector<int> order,overflow;
     for(UINT raw:values.toolbar_order){const int id=static_cast<int>(raw);if(!IsCustomizableToolbarId(id)||std::find(order.begin(),order.end(),id)!=order.end())return false;order.push_back(id);}
     for(UINT i=0;i<values.toolbar_overflow_count;++i){const int id=static_cast<int>(values.toolbar_overflow[i]);if(!IsCustomizableToolbarId(id)||std::find(overflow.begin(),overflow.end(),id)!=overflow.end())return false;overflow.push_back(id);}
-    out.order=std::move(order);out.overflow=std::move(overflow);out.labels=static_cast<ToolbarLabels>(values.toolbar_labels);out.auto_properties=values.toolbar_auto_properties!=0;out.property_style=static_cast<PropertyBarStyle>(values.toolbar_property_style);out.Normalize();
+    out.order=std::move(order);out.overflow=std::move(overflow);out.labels=static_cast<ToolbarLabels>(values.toolbar_labels);out.auto_properties=values.toolbar_auto_properties!=0;out.property_style=static_cast<PropertyBarStyle>(values.toolbar_property_style);out.surface_style=static_cast<ToolbarSurfaceStyle>(values.toolbar_surface_style);out.Normalize();
     return true;
 }
 bool Decode(const Values& values,Preferences& p){
@@ -76,7 +77,7 @@ int SettingsWorkerMain(int count,wchar_t** args){
     if(!map.value||!request.value||!response.value)return 2;
     Mapping exchange{static_cast<Exchange*>(MapViewOfFile(map.value,FILE_MAP_ALL_ACCESS,0,0,sizeof(Exchange)))};
     Preferences draft;
-    if(!exchange.value||exchange.value->version!=20||!Decode(exchange.value->values,draft))return 2;
+    if(!exchange.value||exchange.value->version!=21||!Decode(exchange.value->values,draft))return 2;
     return ShowSettingsDialog(nullptr,draft,[&](const Preferences& candidate){
         exchange.value->values=Encode(candidate);exchange.value->accepted=0;exchange.value->command=0;
         if(!SetEvent(request.value)||WaitForSingleObject(response.value,INFINITE)!=WAIT_OBJECT_0)return false;
@@ -101,7 +102,7 @@ bool EditPreferencesIsolated(HWND owner,Preferences& value,const std::function<b
     if(!SetInformationJobObject(job.value,JobObjectExtendedLimitInformation,&limits,sizeof(limits)))return false;
     Mapping exchange{static_cast<Exchange*>(MapViewOfFile(map.value,FILE_MAP_ALL_ACCESS,0,0,sizeof(Exchange)))};
     if(!exchange.value)return false;
-    *exchange.value={20,Encode(value),0,0,0};
+    *exchange.value={21,Encode(value),0,0,0};
     ActiveExchange active(exchange.value);
     SIZE_T bytes{};InitializeProcThreadAttributeList(nullptr,1,0,&bytes);
     std::vector<unsigned char> storage(bytes);

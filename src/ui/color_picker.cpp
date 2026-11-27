@@ -1,6 +1,5 @@
 #include "ui/color_picker.h"
 #include "capture/frame.h"
-#include <bitset>
 #include <algorithm>
 #include <cmath>
 namespace lumashot {
@@ -16,12 +15,12 @@ uint32_t FromHsv(Hsv h) {
     const auto byte=[&](float v){return static_cast<uint32_t>(std::lround((v+m)*255));};return 0xff000000|(byte(r)<<16)|(byte(g)<<8)|byte(b);
 }
 std::wstring ColorHex(uint32_t color){wchar_t text[8]{};swprintf_s(text,L"#%06X",color&0xffffff);return text;}
-std::wstring SamplePixelText(const Frame& frame, POINT point, PixelColorFormat format) {
+std::optional<uint32_t> SamplePixelColor(const Frame& frame, POINT point) {
     if (!PtInRect(&frame.bounds, point)) return {};
     const auto row = PixelsOf(frame).Row(point.y - frame.bounds.top);
-    const uint32_t color = row[point.x - frame.bounds.left];
-    if (format == PixelColorFormat::Hex) return ColorHex(color);
-    if (format == PixelColorFormat::Binary) return L"0b" + std::bitset<24>(color).to_string<wchar_t>();
+    return row[point.x - frame.bounds.left] & 0xffffff;
+}
+std::wstring ColorRgb(uint32_t color) {
     return L"rgb(" + std::to_wstring((color >> 16) & 255) + L", " +
         std::to_wstring((color >> 8) & 255) + L", " + std::to_wstring(color & 255) + L")";
 }

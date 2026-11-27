@@ -6,8 +6,8 @@ struct Hsv { float h{},s{},v{}; };
 Hsv ToHsv(uint32_t color);
 uint32_t FromHsv(Hsv hsv);
 std::wstring ColorHex(uint32_t color);
-enum class PixelColorFormat { Hex, Rgb, Binary };
-std::wstring SamplePixelText(const Frame& frame, POINT point, PixelColorFormat format);
+std::wstring ColorRgb(uint32_t color);
+std::optional<uint32_t> SamplePixelColor(const Frame& frame, POINT point);
 bool ParseColorHex(std::wstring text,uint32_t& color);
 struct ColorPicker {
     bool open{},replace{},invalid{};

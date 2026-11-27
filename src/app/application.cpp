@@ -703,8 +703,6 @@ void Application::Start() {
     state_.hint=preferences_.include_cursor?L"已包含鼠标指针 · 拖动框选 / 单击窗口 · F 全屏 · A 全部屏幕 · Esc 取消":
         L"拖动框选 / 单击窗口 · F 全屏 · A 全部屏幕 · Esc 取消";
     translate_capture_=translate;
-    if (!translate && quick_capture_ == QuickCapture::None && !ipc_client_)
-        state_.hint += L" · 取色 C: HEX / R: RGB / B: 二进制";
     if(translate)state_.hint=L"截图翻译 · 拖动框选要翻译的区域 / 单击窗口 · F 全屏 · Esc 取消";
     // Offline engine: load the model while the user selects the region (after the screen grab).
     if(translate)translate::Prewarm(translate::LoadConfig(translate::DefaultConfigPath()),std::chrono::milliseconds(250));
@@ -839,7 +837,7 @@ void Application::ShowViews() try {
     // Same rule for the magnifier (closed after every capture): its window and first
     // layered frame are created hidden, so the first visible hover only moves it.
     if(!state_.selected&&!state_.dragging&&!state_.busy){const POINT pointer=NativePoint(state_.pointer);
-        for(const auto& view:views_)if(PtInRect(&view->bounds,pointer)){magnifier_.Prepare(view->window,*frame_,view->bounds,pointer);break;}}
+        for(const auto& view:views_)if(PtInRect(&view->bounds,pointer)){magnifier_.Prepare(view->window,*frame_,view->bounds,pointer,ColorAt(pointer));break;}}
     HWND focus=views_.front()->window;
     for(auto& view:views_) {
         ShowWindow(view->window,SW_SHOWNOACTIVATE);UpdateWindow(view->window);
@@ -852,11 +850,20 @@ void Application::ShowViews() try {
     // that prevents every subsequent capture attempt.
     if(ipc_client_)client_exit_=1;Cancel(false);throw;
 }
+bool Application::CanSampleColor() const {
+    return active_ && frame_ && !state_.selected && !state_.dragging && !state_.busy &&
+        !pin_edit_id_ && !translate_capture_ && quick_capture_ == QuickCapture::None && !ipc_client_;
+}
+std::optional<uint32_t> Application::ColorAt(POINT point) const {
+    if (!CanSampleColor()) return {};
+    const Frame& source = cursor_patch_ && PtInRect(&cursor_patch_->bounds, point) ? *cursor_patch_ : *frame_;
+    return SamplePixelColor(source, point);
+}
 void Application::UpdateMagnifier() {
     if(!active_||!frame_||state_.selected||state_.dragging||state_.busy){magnifier_.Hide();return;}
     const POINT pointer=NativePoint(state_.pointer);
     for(const auto& view:views_)if(PtInRect(&view->bounds,pointer)){
-        magnifier_.Show(view->window,*frame_,view->bounds,pointer);return;
+        magnifier_.Show(view->window,*frame_,view->bounds,pointer,ColorAt(pointer));return;
     }
     magnifier_.Hide();
 }
@@ -1428,20 +1435,15 @@ void Application::Key(View& view,WPARAM key) {
     if(key==VK_ESCAPE){Cancel();return;}
     if(state_.busy)return;
     const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0;
-    if (active_ && frame_ && !state_.selected && !state_.dragging && !pin_edit_id_ &&
-        !translate_capture_ && quick_capture_ == QuickCapture::None && !ipc_client_ &&
+    if (CanSampleColor() &&
         !control && !((GetKeyState(VK_SHIFT) | GetKeyState(VK_MENU) |
             GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) &&
-        (key == 'C' || key == 'R' || key == 'B')) {
+        (key == 'C' || key == 'R')) {
         POINT point{};
         if (!GetCursorPos(&point)) return;
-        const auto format = key == 'C' ? PixelColorFormat::Hex :
-            key == 'R' ? PixelColorFormat::Rgb : PixelColorFormat::Binary;
-        const Frame& source = cursor_patch_ && PtInRect(&cursor_patch_->bounds, point)
-            ? *cursor_patch_ : *frame_;
-        const auto text = SamplePixelText(source, point, format);
-        if (text.empty()) return;
-        try { CopyText(main_, text); }
+        const auto color = ColorAt(point);
+        if (!color) return;
+        try { CopyText(main_, key == 'C' ? ColorHex(*color) : ColorRgb(*color)); }
         catch (const std::exception&) {
             state_.hint = L"复制颜色失败，请释放剪贴板后重试 · Esc 取消";
             Invalidate();

@@ -3,6 +3,8 @@
 #include <cmath>
 namespace lumashot {
 void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewState& state) {
+    const bool acrylic_surface=state.toolbar.custom.surface_style==ToolbarSurfaceStyle::Acrylic;
+    const bool toolbar_dark=state.dark&&acrylic_surface;
     ui::PaintContext paint;
     paint.target=target_.Get();
     paint.brush=[this](uint32_t color){Brush(color);return brush_.Get();};
@@ -32,7 +34,7 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
                 target_->DrawLine({cx-9*u,y},{cx+9*u,y},paint.brush(color),1.6f*u);target_->FillEllipse(D2D1::Ellipse({knob,y},2.6f*u,2.6f*u),paint.brush(color));}
         }else Icon(id,b,color);
     };
-    paint.surface=[this,&frame,&state](Box b,float radius){Panel(b,acrylic_bitmap_.Get(),frame,state.dark,radius);};
+    paint.surface=[this,&frame,toolbar_dark,acrylic_surface](Box b,float radius){Panel(b,acrylic_bitmap_.Get(),frame,toolbar_dark,radius,acrylic_surface);};
     paint.color_wheel=[this](Box b){
         if(!color_wheel_bitmap_){
             // Generate once per render target, with premultiplied edge pixels.
@@ -49,7 +51,7 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
         target_->DrawBitmap(color_wheel_bitmap_.Get(),D2D1::RectF(b.left,b.top,b.right,b.bottom),1,D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     };
     const auto controls=ToolbarControls(state,document);
-    const ui::Theme theme{state.toolbar.scale,state.dark};
+    const ui::Theme theme{state.toolbar.scale,toolbar_dark};
     ui::DrawControls(paint,theme,std::span(controls).first(1));
     const auto toolbar_bounds=state.toolbar.bounds;const auto& card_full=state.toolbar.card_full;
     const auto in_card=[&card_full](const ui::Control& c){return card_full.right>card_full.left&&c.bounds.left>=card_full.left-.5f&&c.bounds.right<=card_full.right+.5f&&
@@ -68,7 +70,7 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
             const float hot=motion.hover[size_t(c.id)],down=motion.press[size_t(c.id)];
             const auto r=D2D1::RoundedRect(D2D1::RectF(c.bounds.left,c.bounds.top,c.bounds.right,c.bounds.bottom),theme.Radius(),theme.Radius());
             if(c.enabled&&!c.primary){
-                if(hot>0){const auto a=uint32_t(std::lround(hot*(theme.dark?28:70)));target_->FillRoundedRectangle(r,paint.brush((a<<24)|(theme.dark?0x3e526e:0xffffff)));}
+                if(hot>0){const auto a=uint32_t(std::lround(hot*(theme.dark?28:90)));target_->FillRoundedRectangle(r,paint.brush((a<<24)|(theme.dark?0x3e526e:0xe1e7ef)));}
                 if(down>0){const auto a=uint32_t(std::lround(down*65));target_->FillRoundedRectangle(r,paint.brush((a<<24)|0x488fe0));}
                 c.indicator_backed=true;
             }
@@ -87,8 +89,8 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
     }
     if(state.dropdown.Open()){
         const auto& popup=state.dropdown;const float s=popup.scale;const auto b=popup.bounds;
-        const ui::Theme menu{s,state.dark};
-        Panel(b,acrylic_bitmap_.Get(),frame,state.dark,8*s);
+        const ui::Theme menu{s,toolbar_dark};
+        Panel(b,acrylic_bitmap_.Get(),frame,toolbar_dark,8*s,acrylic_surface);
         for(int i=0;i<static_cast<int>(popup.items.size());++i){
             const auto row=popup.Row(i);
             float text_left=ui::DrawDropdownRow(paint,menu,row,i==popup.hover,i==popup.selected);
@@ -115,7 +117,7 @@ void Renderer::Toolbar(const Frame& frame,const Document& document,const ViewSta
     if(state.property_drag<0&&((state.hover>=0&&state.hover<=18)||state.hover==28||state.hover==70)) {
         const float s=state.toolbar.scale;const Box anchor=(state.hover==28||state.hover==70)?state.toolbar.Property(state.hover):state.toolbar.Button(state.hover);
         const RECT monitor=monitor_.right>monitor_.left?monitor_:frame.bounds;
-        ui::DrawTooltip(paint,{s,state.dark},(state.hover==28||state.hover==70)?L"自定义颜色":ToolbarActionName(state.hover),anchor,
+        ui::DrawTooltip(paint,{s,toolbar_dark},(state.hover==28||state.hover==70)?L"自定义颜色":ToolbarActionName(state.hover),anchor,
             {float(monitor.left),float(monitor.top),float(monitor.right),float(monitor.bottom)});
     }
 }

@@ -26,6 +26,8 @@ enum class ToolbarLabels{Auto,Text,Icons};
 // 属性栏样式: Strip = one row with each caption left of its controls (default); Card = captions above
 // the controls, a roomier two-band card.
 enum class PropertyBarStyle{Strip,Card};
+// Surface behind the screenshot toolbar and its property card.
+enum class ToolbarSurfaceStyle{Acrylic,Solid};
 
 struct ToolbarCustomization {
     std::vector<int> order{CustomizableToolbarIds.begin(),CustomizableToolbarIds.end()};
@@ -35,6 +37,7 @@ struct ToolbarCustomization {
     ToolbarLabels labels{ToolbarLabels::Auto};
     bool auto_properties{true};
     PropertyBarStyle property_style{PropertyBarStyle::Strip};
+    ToolbarSurfaceStyle surface_style{ToolbarSurfaceStyle::Acrylic};
     bool operator==(const ToolbarCustomization&)const=default;
     bool OnPanel(int id)const{return !IsCustomizableToolbarId(id)||std::find(overflow.begin(),overflow.end(),id)==overflow.end();}
     void SetOnPanel(int id,bool on){
@@ -59,6 +62,7 @@ struct ToolbarCustomization {
         overflow=std::move(hidden);
         if(static_cast<int>(labels)<0||static_cast<int>(labels)>2)labels=ToolbarLabels::Auto;
         if(static_cast<int>(property_style)<0||static_cast<int>(property_style)>1)property_style=PropertyBarStyle::Strip;
+        if(static_cast<int>(surface_style)<0||static_cast<int>(surface_style)>1)surface_style=ToolbarSurfaceStyle::Acrylic;
     }
 };
 inline std::wstring FormatToolbarIds(const std::vector<int>& ids){

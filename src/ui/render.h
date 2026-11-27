@@ -153,7 +153,7 @@ private:
     void Number(const Frame& frame,const Mark& mark);
     void TagBackground(Box box,uint32_t fill,uint32_t border,TagMetrics metrics);
     void NumberDetail(const Frame& frame,const Mark& mark);
-    void Panel(Box rect, ID2D1Bitmap* acrylic, const Frame& frame, bool dark, float radius);
+    void Panel(Box rect, ID2D1Bitmap* acrylic, const Frame& frame, bool dark, float radius,bool acrylic_surface=true);
     void Icon(int index, Box rect, uint32_t color);
     void Picker(const Frame& frame,const ViewState& state);
     void SnapGuide(const ViewState& state,const std::optional<Mark>& draft);
